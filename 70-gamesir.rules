@@ -1,0 +1,25 @@
+# Grant the logged-in desktop user access to the GameSir Cyclone 2 vendor HID
+# interface, so the app runs WITHOUT sudo. Scoped to GameSir's USB vendor id
+# (0x3537) only - no other device is affected.
+#
+# Install:
+#   sudo cp 70-gamesir.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# (no replug needed; the trigger re-applies the ACL.)
+#
+# TAG+="uaccess" hands an ACL to whoever is logged in at the local seat (the
+# modern, group-free way). IMPORTANT: the filename MUST sort before
+# 73-seat-late.rules, which is the rule that actually applies the uaccess ACL -
+# udev runs rules in lexical order, so a 99-* name sets the tag too late and the
+# ACL is silently never granted. Hence the 70- prefix; do not renumber it >=73.
+#
+# On a headless/remote box with no local seat, uaccess won't apply; use a group
+# instead, e.g.:  SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3537", MODE="0660", GROUP="input"
+# and add yourself to that group (then re-login).
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3537", TAG+="uaccess"
+
+# Also grant the controller's input event nodes, so the app can EVIOCGRAB the
+# emulated mouse/keyboard for the "Suppress emulated mouse/keyboard" toggle
+# (fixes the post-reconnect mouse-mode). The gamepad/joystick node is grabbed
+# only while you enable the toggle; nothing here changes normal input.
+SUBSYSTEM=="input", ATTRS{idVendor}=="3537", TAG+="uaccess"

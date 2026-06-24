@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS / editor cruft
+.DS_Store
+*.swp
+*~
+
+# Large reverse-engineering captures (kept locally; excluded from the lean
+# baseline so the repo stays small. Track with git-lfs if you want them in git.)
+USBPcap Controller Tests/
+*.pcapng
+*.pcap
+
+# Local backups exported by the app
+gamesir_backup_*.json
+
+# Asset / reference packs (downloaded icon packs, UI reference screenshots) -
+# not needed to run the app; kept locally but out of the lean baseline.
+Icons and Images/
+*.zip
+
