@@ -190,6 +190,13 @@ Item {
                     Item { width: parent.width - 130 - audioSw.width; height: 1 }
                     ToggleSwitch { id: audioSw; onToggled: bridge.setAudioReactive(audioSw.checked) }
                 }
+                Text {
+                    width: parent.width; wrapMode: Text.WordWrap
+                    text: "Experimental — arms the device flag, but live reactivity " +
+                          "needs the host to stream audio (not yet implemented)."
+                    color: Theme.textFaint
+                    font.family: Theme.fontFamily; font.pixelSize: Theme.fontS
+                }
                 Row {
                     width: parent.width
                     Text { text: "Pick-up to wake"; color: Theme.text
