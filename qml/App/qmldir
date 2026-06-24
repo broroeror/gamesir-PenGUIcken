@@ -1,0 +1,11 @@
+module App
+singleton Theme 1.0 Theme.qml
+Card 1.0 Card.qml
+NavTab 1.0 NavTab.qml
+ProfileBar 1.0 ProfileBar.qml
+StatusPill 1.0 StatusPill.qml
+ControllerView 1.0 ControllerView.qml
+AccentSlider 1.0 AccentSlider.qml
+ToggleSwitch 1.0 ToggleSwitch.qml
+ColorPicker 1.0 ColorPicker.qml
+LightsPage 1.0 LightsPage.qml
