@@ -4,7 +4,7 @@ import QtQuick
 Item {
     id: sw
     property bool checked: false
-    signal toggled(bool checked)
+    signal toggled(bool on)
 
     implicitWidth: 42; implicitHeight: 23
 

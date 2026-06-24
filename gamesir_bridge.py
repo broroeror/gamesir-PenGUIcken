@@ -13,6 +13,7 @@ Two cadences:
 """
 
 import threading
+import time
 
 from PySide6.QtCore import QObject, Signal, Property, Slot, QTimer
 
@@ -21,12 +22,22 @@ import gamesir_control as control
 import gamesir_led as led
 import gamesir_config as cfg
 import gamesir_kf_cache as kf_cache
+import gamesir_kwin as kwin
 from gamesir_led import LIGHTS
 
 
 def _led_async(fn, *args):
     """Every led.* write is fire-and-forget; run it off the Qt thread."""
     threading.Thread(target=lambda: fn(*args), daemon=True).start()
+
+
+def _led_retry(fn, *args):
+    """Like _led_async, but send twice (spaced) for one-shot single-byte settings
+    the controller is prone to dropping when a command arrives back-to-back with
+    its heartbeat/queries (audio-reactive, pick-up-to-wake, sleep timeout)."""
+    def run():
+        fn(*args); time.sleep(0.06); fn(*args)
+    threading.Thread(target=run, daemon=True).start()
 
 
 # Friendly key -> (register address, review-label) for the scalar config fields
@@ -72,6 +83,7 @@ class GamesirBridge(QObject):
     statusChanged = Signal()
     lightsChanged = Signal()
     lightingLoaded = Signal()       # fired when a slot's lighting is read back
+    mouseModeChanged = Signal()
     configLoaded = Signal()         # fired when a profile's config is read back
     pendingChanged = Signal()       # number of queued (unsaved) config edits
 
@@ -384,15 +396,15 @@ class GamesirBridge(QObject):
 
     @Slot(bool)
     def setAudioReactive(self, on):
-        _led_async(led.set_audio_reactive, on)
+        _led_retry(led.set_audio_reactive, bool(on))
 
     @Slot(bool)
     def setPickupWake(self, on):
-        _led_async(led.set_pickup_wake, on)
+        _led_retry(led.set_pickup_wake, bool(on))
 
     @Slot(str)
     def setSleepTimeout(self, label):
-        _led_async(led.set_sleep_timeout, led.sleep_raw(label))
+        _led_retry(led.set_sleep_timeout, led.sleep_raw(label))
 
     @Slot('QVariantList')
     def applyKeyframes(self, frames):
@@ -409,9 +421,33 @@ class GamesirBridge(QObject):
     def setPlayback(self, playing, frame):
         _led_async(led.set_playback, playing, frame)
 
+    @Slot(int)
+    def selectSlot(self, n):
+        """Make lighting slot n active (the lighting profiles are independent of
+        the hardware button profiles, so this is its own selector). Forces a
+        re-read so the page reflects that slot."""
+        state['led_slot'] = n                  # optimistic; the poll confirms it
+        self._loaded_led_slot = None           # force _poll_lighting to reload
+        _led_async(led.select_slot, n)
+
     @Slot()
     def restoreLighting(self):
         _led_async(led.restore_factory)
+
+    # ------------------------------------------------------------- mouse mode
+    @Property(bool, constant=True)
+    def mouseModeAvailable(self):
+        return kwin.available()
+
+    @Property(bool, notify=mouseModeChanged)
+    def mouseModeOn(self):
+        v = kwin.is_enabled()
+        return bool(v) if v is not None else False
+
+    @Slot(bool)
+    def setMouseMode(self, on):
+        kwin.set_enabled(on)
+        self.mouseModeChanged.emit()
 
     # ------------------------------------------------------------- config editor
     @Property('QVariantMap', notify=configLoaded)

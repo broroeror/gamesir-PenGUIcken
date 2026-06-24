@@ -113,6 +113,28 @@ Item {
             spacing: 16
 
             Card {
+                title: "Lighting Profile"; Layout.fillWidth: true
+                Text {
+                    width: parent.width; wrapMode: Text.WordWrap
+                    text: "Independent of the hardware profile — shared across all four."
+                    color: Theme.textFaint; font.family: Theme.fontFamily; font.pixelSize: Theme.fontS
+                }
+                Row {
+                    width: parent.width; spacing: 8
+                    Repeater {
+                        model: 4
+                        delegate: TextButton {
+                            required property int index
+                            label: "" + (index + 1)
+                            implicitWidth: 44
+                            highlight: bridge.ledSlot === index
+                            onClicked: bridge.selectSlot(index)
+                        }
+                    }
+                }
+            }
+
+            Card {
                 title: "Presets"; Layout.fillWidth: true
                 Flow {
                     width: parent.width; spacing: 8
@@ -166,7 +188,7 @@ Item {
                            font.family: Theme.fontFamily; font.pixelSize: Theme.fontM
                            anchors.verticalCenter: parent.verticalCenter }
                     Item { width: parent.width - 130 - audioSw.width; height: 1 }
-                    ToggleSwitch { id: audioSw; onToggled: bridge.setAudioReactive(checked) }
+                    ToggleSwitch { id: audioSw; onToggled: bridge.setAudioReactive(audioSw.checked) }
                 }
                 Row {
                     width: parent.width
@@ -174,7 +196,7 @@ Item {
                            font.family: Theme.fontFamily; font.pixelSize: Theme.fontM
                            anchors.verticalCenter: parent.verticalCenter }
                     Item { width: parent.width - 130 - wakeSw.width; height: 1 }
-                    ToggleSwitch { id: wakeSw; onToggled: bridge.setPickupWake(checked) }
+                    ToggleSwitch { id: wakeSw; onToggled: bridge.setPickupWake(wakeSw.checked) }
                 }
                 Text { text: "Sleep when inactive"; color: Theme.textDim
                        font.family: Theme.fontFamily; font.pixelSize: Theme.fontS }

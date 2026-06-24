@@ -34,6 +34,19 @@ Item {
         bridge.setCurve(side, name, [])
     }
 
+    // Stage safe factory defaults for this axis — a one-click recovery if a
+    // profile gets into a bad state (e.g. a collapsed deadzone bricked the stick).
+    function resetDefaults() {
+        var dzMin = isStick ? 10 : 5, dzMax = isStick ? 100 : 95
+        dz.lo = dzMin; dz.hi = dzMax; adz.lo = 0; adz.hi = 100
+        bridge.setScalar(side + "_dz_min", dzMin); bridge.setScalar(side + "_dz_max", dzMax)
+        bridge.setScalar(side + "_adz_min", 0); bridge.setScalar(side + "_adz_max", 100)
+        curveType = 0; curve.setPoints(bridge.curvePresets["Linear"])
+        bridge.setCurve(side, "Linear", [])
+        typeIdx = 0
+        if (isStick) bridge.setTraj(side, 0); else bridge.setHair(side, 0)
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 20
@@ -154,6 +167,12 @@ Item {
                             }
                         }
                     }
+                }
+
+                PillButton {
+                    label: "Reset to defaults"
+                    Layout.fillWidth: true
+                    onClicked: page.resetDefaults()
                 }
                 Item { Layout.fillHeight: true }
             }

@@ -64,6 +64,30 @@ Window {
 
                 Item { Layout.fillWidth: true }
 
+                // Mouse-mode (KWin "sticks drive the cursor") quick toggle.
+                Row {
+                    visible: bridge.mouseModeAvailable
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: 8
+                    Text {
+                        text: "Mouse mode"; color: Theme.textDim
+                        font.family: Theme.fontFamily; font.pixelSize: Theme.fontS
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    ToggleSwitch {
+                        id: mmSwitch
+                        anchors.verticalCenter: parent.verticalCenter
+                        checked: bridge.mouseModeOn
+                        onToggled: bridge.setMouseMode(mmSwitch.checked)
+                    }
+                }
+
+                Rectangle {
+                    visible: bridge.mouseModeAvailable
+                    Layout.alignment: Qt.AlignVCenter
+                    width: 1; height: 24; color: Theme.cardBorder
+                }
+
                 StatusPill {}
             }
         }
