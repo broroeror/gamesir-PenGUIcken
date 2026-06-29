@@ -1,18 +1,19 @@
-# Maintainer: <your name> <your email>
+# Maintainer: broroeror <54515333+broroeror@users.noreply.github.com>
 #
 # AUR package for the GameSir Cyclone 2 Linux control app (Qt/QML frontend).
 # Publish this to the AUR so Arch users can install with one command:
 #
 #     yay -S gamesir-cyclone2-git
 #
-# Before publishing: set `url`/`source` to your GitHub repo, fill in the
-# Maintainer line, and run `updpkgsums` is not needed for a VCS source.
+# This is a VCS (-git) package: it builds from the latest commit on the default
+# branch, and pkgver() below derives the version from git, so no checksums or
+# `updpkgsums` step is needed.
 pkgname=gamesir-cyclone2-git
-pkgver=0.2.0
+pkgver=0.1.0alpha2
 pkgrel=1
 pkgdesc="Configure the GameSir Cyclone 2 controller (lighting, sticks, triggers, buttons) on Linux"
 arch=('any')
-url="https://github.com/<youruser>/gamesir-cyclone2"        # <-- set me
+url="https://github.com/broroeror/gamesir-PenGUIcken"
 license=('MIT')
 depends=('python' 'python-pyside6' 'python-hidapi')
 makedepends=('git')

@@ -42,7 +42,8 @@ There are two frontends over the same reverse-engineered core:
 On **Arch / KDE**, one command after cloning:
 
 ```sh
-git clone <repo-url> && cd "GameSir Linux"
+git clone https://github.com/broroeror/gamesir-PenGUIcken.git
+cd gamesir-PenGUIcken
 ./install.sh
 ```
 
