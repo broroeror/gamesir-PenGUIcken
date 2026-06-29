@@ -20,7 +20,9 @@ vendor (hidraw) interface, reverse-engineered from scratch. It covers:
 
 ![status: input, battery, profiles, RGB + keyframes, full config editor, remap, and JSON backup/restore working]
 
-**Version:** `0.1.0-alpha.1` — a known-good baseline (git tag `v0.1.0-alpha.1`).
+**Version:** `0.1.0-alpha.2` — the full Qt/QML app (lighting + keyframe editor,
+config editor, button remap, backup/restore, one-command install). Known-good
+snapshot (git tag `v0.1.0-alpha.2`).
 Remaining bugs, proposed changes, and open reverse-engineering questions live in
 **[TODO.md](TODO.md)** — a living checklist. This is a hobby reverse-engineering
 project; fork it and customize it however you like.
