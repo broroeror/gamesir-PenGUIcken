@@ -49,6 +49,15 @@ the README's protocol notes or the commit message.
 - [ ] **Restore: per-block verify detail.** The write-verify-retry already reports
       pass/fail; could add a "verify only" action or a list of any unconfirmed
       blocks.
+- [ ] **Cross-platform portability (macOS / Windows).** The core — PySide6 + hidapi
+      + the pure-Python protocol — already runs anywhere. The one Linux-coupled
+      chokepoint is device discovery in `gs_common.find_vendor_nodes()`, which globs
+      `/sys/class/hidraw` and opens `/dev/hidraw*`. Swap it for `hid.enumerate()`
+      (select by vendor id `0x3537` + interface) and macOS/Windows are unblocked —
+      ~one function, Linux behaviour unchanged. Other Linux flavors already work (the
+      udev rule is distro-agnostic). Mouse-mode, the evdev diagnostics, and the
+      installer stay Linux/KDE-only and degrade gracefully. Needs a Mac/Windows box
+      to actually test.
 
 ## 🚀 Long-term / big bets
 
@@ -80,8 +89,20 @@ a sacrificial unit for firmware experiments) and **a GameSir G7**.
 
 - [ ] **Verify the RT trigger block** (currently inferred as the LT block mirrored
       at `+0x1c`) against a capture of an RT-setting change.
-- [ ] **Capture View / Menu / L4 / R4 remap *target* codes** (only their source
-      addresses are mapped so far).
+- [ ] **Audio-reactive lighting: reverse the host-streaming format.** The enable
+      flag (`0x20` / `0x026d`) is known, but the effect is *host-driven* — the
+      controller has no mic, so the PC must stream audio levels to it. Needs a live
+      USBPcap of the official app with audio-reactive **on** over music with loud/
+      quiet/loud dynamics to learn the streaming command, then a PipeWire monitor →
+      amplitude → stream pipeline. (Distinct from, and a prerequisite signal for,
+      the long-term "audio via the headset jack" bet.)
+- [ ] **Reprogram View / Menu / L4 / R4 — find the vendor-protocol *target* codes.**
+      Source side is now fully understood (see
+      [CONTROLLER_MAP.md](CONTROLLER_MAP.md)): L4/R4/M are *firmware-controlled*, not
+      gamepad inputs, and the pad has two USB identities (`3537:0575` where L4/R4
+      send keyboard macros, `3537:100b` pure XInput where they're blank). So
+      remapping them must go over the vendor channel — capture the official app
+      assigning each to learn the target-code format.
 - [ ] **Profile-switch → bank sync:** how a `SET-PROFILE` syncs bank `0x01` to a
       store. Unlocks restoring profiles 2–4 (above).
 - [ ] **PS4 / Switch-mode input parsing** — the vendor channel is Xbox-only;
@@ -89,6 +110,14 @@ a sacrificial unit for firmware experiments) and **a GameSir G7**.
 
 ## ✅ Done (recent highlights)
 
+- [x] **Controller input map captured & documented**
+      ([CONTROLLER_MAP.md](CONTROLLER_MAP.md)) with a new re-enumeration-resilient
+      evdev reader (`gamesir_input_map.py`): standard controls are XInput on
+      `event2`; L4/R4/M are firmware-only; the pad has two USB identities.
+- [x] **Live mouse-mode enable** (D-Bus `LoadPlugin`) + clearer **"Sticks → cursor"**
+      label with a hover help icon explaining the KWin plugin.
+- [x] **Backup Save dialog auto-names** the file (dated default); **`install.sh`
+      prompts before each sudo step** and declines gracefully (non-TTY → no).
 - [x] Mouse-mode root cause found: it's **KWin's Game Controller plugin** (Plasma
       6.7), not the controller. In-app toggle (off / couch mode) on KDE, with an
       EVIOCGRAB fallback elsewhere.
