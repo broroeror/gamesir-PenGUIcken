@@ -7,7 +7,7 @@ Window {
     id: win
     width: 1040
     height: 720
-    minimumWidth: 900
+    minimumWidth: 840
     minimumHeight: 620
     visible: true
     color: Theme.bg

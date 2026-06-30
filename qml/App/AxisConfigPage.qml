@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls as QQC
 import QtQuick.Layouts
 
 // Shared editor for one analog axis pair (the two sticks, or the two triggers).
@@ -13,6 +14,12 @@ Item {
     property string side: sideKeys[0][1]
     property int curveType: 0          // 0..2 preset, 3 custom
     property int typeIdx: 0            // trajectory or hair-mode index
+
+    // When the viewport is too short to stack all of the left controls, the
+    // trajectory/hair card moves into the slack beside the curve graph (centre)
+    // so the middle space is used before scrolling.
+    readonly property bool compact: scroller.availableHeight > 0
+                                    && scroller.availableHeight < 560
 
     function seed() {
         var c = bridge.config
@@ -47,10 +54,20 @@ Item {
         if (isStick) bridge.setTraj(side, 0); else bridge.setHair(side, 0)
     }
 
-    ColumnLayout {
+    // Scroll fallback: fills a tall window, scrolls once the controls no longer
+    // fit, so nothing clips at small window sizes.
+    QQC.ScrollView {
+        id: scroller
         anchors.fill: parent
-        anchors.margins: 20
-        anchors.bottomMargin: pbar.visible ? pbar.height + 30 : 20
+        anchors.bottomMargin: pbar.visible ? pbar.height + 30 : 0
+        contentWidth: availableWidth
+        QQC.ScrollBar.horizontal.policy: QQC.ScrollBar.AlwaysOff
+        clip: true
+        topPadding: 20; bottomPadding: 20; leftPadding: 20; rightPadding: 20
+
+    ColumnLayout {
+        width: scroller.availableWidth
+        height: Math.max(implicitHeight, scroller.availableHeight)
         spacing: 14
 
         // ---- Left/Right sub-tabs --------------------------------------------
@@ -86,8 +103,9 @@ Item {
 
             // ======================== LEFT controls ========================
             ColumnLayout {
-                Layout.fillWidth: false
-                Layout.preferredWidth: 270; Layout.maximumWidth: 270
+                id: leftCol
+                Layout.fillWidth: true
+                Layout.minimumWidth: 240; Layout.preferredWidth: 270; Layout.maximumWidth: 340
                 Layout.fillHeight: true
                 spacing: 14
 
@@ -150,6 +168,9 @@ Item {
                 Card {
                     title: page.isStick ? "Stick Trajectory" : "Hair Trigger Mode"
                     Layout.fillWidth: true
+                    // Reparents into the centre column's slack when the viewport
+                    // is short, so the curve-graph area is used before scrolling.
+                    parent: page.compact ? curveColumn : leftCol
                     Flow {
                         width: parent.width; spacing: 8
                         Repeater {
@@ -178,29 +199,45 @@ Item {
             }
 
             // ======================== CENTER curve graph ========================
-            Item {
+            ColumnLayout {
+                id: curveColumn
                 Layout.fillWidth: true; Layout.fillHeight: true
-                Column {
-                    anchors.centerIn: parent
-                    spacing: 6
+                Layout.horizontalStretchFactor: 2   // center keeps the lion's share
+                spacing: 14
+                Item {
+                    id: curveArea
+                    Layout.fillWidth: true
+                    // Yield the slack to the trajectory card when it reparents here.
+                    Layout.fillHeight: !page.compact
+                    // Report the graph's real height so it can't overflow and
+                    // overlap the side columns; centred when there's spare room.
+                    implicitHeight: curveCol.implicitHeight
+                    Column {
+                        id: curveCol
+                        width: parent.width
+                        y: Math.max(0, (parent.height - implicitHeight) / 2)
+                        spacing: 6
                     Text { text: "Output"; color: Theme.textFaint
                            font.family: Theme.fontFamily; font.pixelSize: Theme.fontS
                            anchors.horizontalCenter: parent.horizontalCenter }
                     CurveEditor {
                         id: curve
-                        width: Math.min(280, page.width * 0.34); height: width
+                        // Square graph that grows with the center column, bounded
+                        // so it stays usable at both extremes.
+                        width: Math.max(160, Math.min(360, curveArea.width - 24)); height: width
                         onEdited: { page.curveType = 3; bridge.setCurve(page.side, "Custom", pts) }
                     }
                     Text { text: "Input"; color: Theme.textFaint
                            font.family: Theme.fontFamily; font.pixelSize: Theme.fontS
                            anchors.horizontalCenter: parent.horizontalCenter }
+                    }
                 }
             }
 
             // ======================== RIGHT live visual ========================
             ColumnLayout {
-                Layout.fillWidth: false
-                Layout.preferredWidth: 220; Layout.maximumWidth: 220
+                Layout.fillWidth: true
+                Layout.minimumWidth: 190; Layout.preferredWidth: 220; Layout.maximumWidth: 280
                 Layout.fillHeight: true
                 spacing: 14
 
@@ -262,6 +299,7 @@ Item {
                 Item { Layout.fillHeight: true }
             }
         }
+    }
     }
 
     // Bottom-anchored overlay so it stays visible regardless of content height.

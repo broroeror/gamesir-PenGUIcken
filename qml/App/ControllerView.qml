@@ -13,6 +13,35 @@ Item {
     implicitWidth: 560
     implicitHeight: implicitWidth / aspect
 
+    // ---- remap indicator API (used by the Buttons page) --------------------
+    // Set highlightSource to the control being edited and highlightTarget to the
+    // control it's mapped to; the view pulses a ring on the source, rings the
+    // target, and draws a dashed link between them. "Default" target = unmapped
+    // (source ring only); "Disabled" = a ⊘ badge on the source, no link.
+    property string highlightSource: ""
+    property string highlightTarget: ""
+    readonly property bool remapMode: highlightSource !== ""
+
+    // Normalised position of every remappable control (matches the placements
+    // below). Bumpers/triggers/paddles aren't on the front body, so they get
+    // labelled edge markers instead.
+    readonly property var ctrlPos: ({
+        "A": [0.756, 0.373], "B": [0.823, 0.275], "X": [0.689, 0.275], "Y": [0.755, 0.177],
+        "LS": [0.235, 0.285], "RS": [0.627, 0.492],
+        "Dpad Up": [0.355, 0.463], "Dpad Down": [0.355, 0.537],
+        "Dpad Left": [0.317, 0.500], "Dpad Right": [0.393, 0.500],
+        "View": [0.425, 0.265], "Menu": [0.566, 0.265],
+        "LT": [0.305, 0.050], "LB": [0.405, 0.050], "RB": [0.595, 0.050], "RT": [0.695, 0.050],
+        "L4": [0.435, 0.660], "R4": [0.565, 0.660]
+    })
+    function hasPos(n) { return n !== undefined && n !== "" && root.ctrlPos[n] !== undefined }
+    readonly property point srcPt: hasPos(highlightSource)
+        ? Qt.point(ctrlPos[highlightSource][0] * width, ctrlPos[highlightSource][1] * height)
+        : Qt.point(0, 0)
+    readonly property point tgtPt: hasPos(highlightTarget)
+        ? Qt.point(ctrlPos[highlightTarget][0] * width, ctrlPos[highlightTarget][1] * height)
+        : Qt.point(0, 0)
+
     function btn(name) { return bridge.buttons[name] === true }
     function zone(i) { return bridge.lightColors[i] !== undefined
                               ? bridge.lightColors[i] : "#000000" }
@@ -252,4 +281,86 @@ Item {
 
     MiniBtn { nx: 0.425; ny: 0.265; glyph: "❐"; on: root.btn("view") }
     MiniBtn { nx: 0.566; ny: 0.265; glyph: "☰"; on: root.btn("menu") }
+
+    // ===================== off-body edge markers =========================
+    // Bumpers / triggers (top edge) and back paddles (low-centre) aren't part of
+    // the moulded front body, so we label them. They brighten when involved in
+    // the current remap so every source/target can be shown on the graphic.
+    component EdgeMarker: Item {
+        property string name: ""
+        property real nx: 0
+        property real ny: 0
+        readonly property bool hot: root.highlightSource === name || root.highlightTarget === name
+        x: root.width * nx - width / 2
+        y: root.height * ny - height / 2
+        width: root.width * 0.078; height: root.width * 0.042
+        Rectangle {
+            anchors.fill: parent; radius: height / 2
+            color: parent.hot ? Theme.accent : "#20232B"
+            border.color: parent.hot ? Qt.lighter(Theme.accent, 1.3) : "#3A3E48"
+            border.width: 1
+            Behavior on color { ColorAnimation { duration: 120 } }
+        }
+        Text {
+            anchors.centerIn: parent; text: parent.name
+            color: parent.hot ? "white" : Theme.textDim
+            font.family: Theme.fontFamily; font.bold: true; font.pixelSize: parent.height * 0.5
+        }
+    }
+    EdgeMarker { name: "LT"; nx: 0.305; ny: 0.050 }
+    EdgeMarker { name: "LB"; nx: 0.405; ny: 0.050 }
+    EdgeMarker { name: "RB"; nx: 0.595; ny: 0.050 }
+    EdgeMarker { name: "RT"; nx: 0.695; ny: 0.050 }
+    EdgeMarker { name: "L4"; nx: 0.435; ny: 0.660 }
+    EdgeMarker { name: "R4"; nx: 0.565; ny: 0.660 }
+
+    // ===================== remap source → target link ====================
+    // Dashed connector (drawn under the rings).
+    Shape {
+        anchors.fill: parent; antialiasing: true
+        visible: root.remapMode && root.hasPos(root.highlightSource)
+                 && root.hasPos(root.highlightTarget)
+        ShapePath {
+            strokeColor: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.85)
+            strokeWidth: Math.max(2, root.width * 0.007)
+            strokeStyle: ShapePath.DashLine
+            dashPattern: [4, 3]
+            fillColor: "transparent"
+            startX: root.srcPt.x; startY: root.srcPt.y
+            PathLine { x: root.tgtPt.x; y: root.tgtPt.y }
+        }
+    }
+
+    // Target ring (static, light).
+    Rectangle {
+        visible: root.remapMode && root.hasPos(root.highlightTarget)
+        width: root.width * 0.11; height: width; radius: width / 2
+        x: root.tgtPt.x - width / 2; y: root.tgtPt.y - height / 2
+        color: "transparent"; opacity: 0.9
+        border.color: "#F2F3F5"; border.width: Math.max(2, root.width * 0.009)
+    }
+
+    // Source ring (pulsing accent).
+    Rectangle {
+        id: srcRing
+        visible: root.remapMode && root.hasPos(root.highlightSource)
+        width: root.width * 0.13; height: width; radius: width / 2
+        x: root.srcPt.x - width / 2; y: root.srcPt.y - height / 2
+        color: "transparent"
+        border.color: Theme.accent; border.width: Math.max(2, root.width * 0.013)
+        SequentialAnimation on scale {
+            running: srcRing.visible; loops: Animation.Infinite
+            NumberAnimation { from: 0.82; to: 1.12; duration: 700; easing.type: Easing.InOutQuad }
+            NumberAnimation { from: 1.12; to: 0.82; duration: 700; easing.type: Easing.InOutQuad }
+        }
+    }
+
+    // "Disabled" badge on the source when the control is mapped to nothing.
+    Text {
+        visible: root.remapMode && root.highlightTarget === "Disabled"
+                 && root.hasPos(root.highlightSource)
+        text: "⊘"; color: Theme.accent; font.bold: true
+        font.pixelSize: root.width * 0.07
+        x: root.srcPt.x + root.width * 0.05; y: root.srcPt.y - root.height * 0.13
+    }
 }

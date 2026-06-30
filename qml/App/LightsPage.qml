@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls as QQC
 import QtQuick.Layouts
 
 // The Lights tab: per-zone color editing wired live to the controller render,
@@ -13,6 +14,12 @@ Item {
     property int curFrame: 0
     property bool playing: true
     property string sleepSel: "10 min"
+
+    // When the viewport is too short to stack all four control cards on the left,
+    // the Power card moves into the slack under the controller (centre) so the
+    // empty middle space is used before falling back to scrolling.
+    readonly property bool compact: scroller.availableHeight > 0
+                                    && scroller.availableHeight < 600
 
     Component.onCompleted: syncFromBridge()
 
@@ -100,15 +107,25 @@ Item {
         TapHandler { onTapped: parent.clicked() }
     }
 
-    RowLayout {
+    // Scroll fallback: fills a tall window, scrolls once the cards no longer fit.
+    QQC.ScrollView {
+        id: scroller
         anchors.fill: parent
-        anchors.margins: 20
+        contentWidth: availableWidth
+        QQC.ScrollBar.horizontal.policy: QQC.ScrollBar.AlwaysOff
+        clip: true
+        topPadding: 20; bottomPadding: 20; leftPadding: 20; rightPadding: 20
+
+    RowLayout {
+        width: scroller.availableWidth
+        height: Math.max(implicitHeight, scroller.availableHeight)
         spacing: 16
 
         // ============================ LEFT ============================
         ColumnLayout {
-            Layout.fillWidth: false
-            Layout.preferredWidth: 250; Layout.maximumWidth: 250
+            id: leftCol
+            Layout.fillWidth: true
+            Layout.minimumWidth: 230; Layout.preferredWidth: 260; Layout.maximumWidth: 320
             Layout.fillHeight: true
             spacing: 16
 
@@ -182,6 +199,9 @@ Item {
 
             Card {
                 title: "Power"; Layout.fillWidth: true
+                // Lives on the left normally; reparents into the centre column's
+                // slack (under the controller) when the viewport is short.
+                parent: page.compact ? centerColumn : leftCol
                 Row {
                     width: parent.width
                     Text { text: "Audio reactive"; color: Theme.text
@@ -225,20 +245,36 @@ Item {
         }
 
         // ============================ CENTER ============================
-        Item {
-            id: centerArea
+        ColumnLayout {
+            id: centerColumn
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Column {
-                anchors.centerIn: parent
-                spacing: 14
+            Layout.horizontalStretchFactor: 2   // controller render gets the extra room
+            spacing: 16
+            Item {
+                id: centerArea
+                Layout.fillWidth: true
+                // Yield the vertical slack to the Power card when it reparents here.
+                Layout.fillHeight: !page.compact
+                // Report the render + zone-picker height so it can't overflow and
+                // overlap the side columns; centred when there's spare room.
+                implicitHeight: centerCol.implicitHeight
+                Column {
+                    id: centerCol
+                    width: parent.width
+                    y: Math.max(0, (parent.height - implicitHeight) / 2)
+                    spacing: 14
                 ControllerView {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: Math.min(implicitWidth, centerArea.width - 24)
                     height: width / aspect
                 }
-                Row {
+                // Flow (not Row) so the four zone chips wrap to a 2×2 block when
+                // the center column is too narrow to hold them on one line,
+                // instead of spilling over the neighbouring cards.
+                Flow {
                     anchors.horizontalCenter: parent.horizontalCenter
+                    width: Math.min(4 * 96 + 3 * 6, centerArea.width)
                     spacing: 6
                     Repeater {
                         model: 4
@@ -267,12 +303,13 @@ Item {
                     }
                 }
             }
+            }
         }
 
         // ============================ RIGHT ============================
         ColumnLayout {
-            Layout.fillWidth: false
-            Layout.preferredWidth: 300; Layout.maximumWidth: 300
+            Layout.fillWidth: true
+            Layout.minimumWidth: 270; Layout.preferredWidth: 300; Layout.maximumWidth: 360
             Layout.fillHeight: true
             spacing: 16
 
@@ -334,5 +371,6 @@ Item {
 
             Item { Layout.fillHeight: true }
         }
+    }
     }
 }
