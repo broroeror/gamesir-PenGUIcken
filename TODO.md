@@ -33,7 +33,11 @@ the README's protocol notes or the commit message.
       official app's macro/keybind screen to learn the command format.
 - [x] **Easy install / packaging.** `install.sh` drops a `.desktop` launcher +
       icon and installs the udev rule (no CLI to launch); `packaging/PKGBUILD`
-      provides an AUR (`gamesir-cyclone2-git`) route. *(Shipped in M6.)*
+      builds locally with `makepkg -si` (no AUR account needed). *(Shipped in M6.)*
+- [ ] *(blocked, external)* **Publish the package to the AUR.** Waiting on AUR
+      account creation, which is **disabled upstream** for the maintainer right now.
+      Not on the critical path — both install routes above work without it. Revisit
+      when aur.archlinux.org account registration reopens.
 - [ ] **Housekeeping: reduce the file count.** The repo has ~25 top-level
       `gamesir_*.py` files — many are one-off RE scripts (`gamesir_regdump`,
       `gamesir_regread`, `gamesir_regwrite_test`, `gamesir_input_diag`,
