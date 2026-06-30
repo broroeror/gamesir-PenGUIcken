@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Dialogs
+import QtCore
 
 // Backup / restore the whole controller (all 4 profiles + lighting) to/from a
 // JSON file, with live progress. Drives bridge.exportBackup / importBackup.
@@ -33,7 +34,11 @@ Column {
             label: "Back up to file…"
             highlight: true
             opacity: bridge.backupBusy ? 0.5 : 1
-            onClicked: if (!bridge.backupBusy) saveDlg.open()
+            onClicked: if (!bridge.backupBusy) {
+                // Pre-fill a dated filename so the user only has to confirm.
+                saveDlg.selectedFile = saveDlg.currentFolder + "/" + bridge.defaultBackupName
+                saveDlg.open()
+            }
         }
         PillButton {
             label: "Restore from file…"
@@ -70,6 +75,7 @@ Column {
         title: "Save controller backup"
         nameFilters: ["JSON files (*.json)"]
         defaultSuffix: "json"
+        currentFolder: StandardPaths.writableLocation(StandardPaths.DocumentsLocation)
         onAccepted: bridge.exportBackup(selectedFile)
     }
     FileDialog {

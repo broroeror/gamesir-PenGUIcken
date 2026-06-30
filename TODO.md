@@ -12,10 +12,10 @@ the README's protocol notes or the commit message.
 
 ## 🐞 Known bugs / rough edges
 
-- [ ] **Couch mode doesn't always enable live.** Turning the mouse-mode toggle
-      *on* (KWin `gamecontrollerEnabled true`) may not take effect until a
-      logout/login; *disabling* works live. Investigate a reliable live-enable
-      (D-Bus call, KWin reconfigure variants, or a scripted plugin reload).
+- [x] **Couch mode doesn't always enable live.** *Fixed:* the toggle now calls
+      `org.kde.KWin.Plugins.LoadPlugin`/`UnloadPlugin` over D-Bus (instead of a
+      bare `reconfigure`), so enabling takes effect immediately. The `kwinrc`
+      flag is still written for persistence / System Settings consistency.
 - [ ] **Restore only covers the active profile + lighting.** Banks `0x02`–`0x04`
       (the stored, non-active profiles) appear read-only when written directly, so
       Restore can't push them. Likely fix: switch to profile N so it loads into
@@ -31,13 +31,46 @@ the README's protocol notes or the commit message.
 - [ ] **Bind the mouse-mode toggle to a controller button** via the controller's
       macro/keybind system (the original stretch goal). Needs a USB capture of the
       official app's macro/keybind screen to learn the command format.
-- [ ] **Easy install / packaging.** An `install.sh` that drops a `.desktop`
-      launcher + icon, sets up a venv, and installs the udev rule (no CLI to
-      launch). Later: a `PKGBUILD` / AUR package for `pacman`-managed installs.
-      Needs an app icon (PNG/SVG).
+- [x] **Easy install / packaging.** `install.sh` drops a `.desktop` launcher +
+      icon and installs the udev rule (no CLI to launch); `packaging/PKGBUILD`
+      provides an AUR (`gamesir-cyclone2-git`) route. *(Shipped in M6.)*
+- [ ] **Housekeeping: reduce the file count.** The repo has ~25 top-level
+      `gamesir_*.py` files — many are one-off RE scripts (`gamesir_regdump`,
+      `gamesir_regread`, `gamesir_regwrite_test`, `gamesir_input_diag`,
+      `gamesir_dump_backup`, `gamesir_enhanced`, the old `gamesir_gui.py`, etc.)
+      that the Qt app no longer imports. Audit what the app actually depends on,
+      move dev/RE-only tools into a `tools/` (or further into `archive/`), and
+      collapse overlapping helpers (`gs_common`/`gs_state` vs the `gamesir_*`
+      modules). Goal: a lean runtime surface + a clearly-separated RE toolbox.
 - [ ] **Restore: per-block verify detail.** The write-verify-retry already reports
       pass/fail; could add a "verify only" action or a list of any unconfirmed
       blocks.
+
+## 🚀 Long-term / big bets
+
+These are the project's north-star goals — larger efforts, several of which chain
+off firmware reverse-engineering. Hardware on hand: **a 2nd Cyclone 2** (bought as
+a sacrificial unit for firmware experiments) and **a GameSir G7**.
+
+- [ ] **Firmware updates from Linux.** The headline long-term goal. Capture the
+      official updater's USB traffic (DFU/bootloader entry, block transfer, verify,
+      reboot) and reproduce the flashing flow. *Use the spare Cyclone 2 as the
+      guinea pig* — a botched flash could brick it, so never test on the daily
+      driver first.
+- [ ] **Expand support to the GameSir G7.** First confirm how much of the existing
+      Cyclone 2 stack (vendor channel, register map, LED/config banks) already
+      applies to the G7 vs. what differs. Likely needs its own register map +
+      capture set; aim to factor the protocol core so a controller is a profile of
+      register addresses rather than hard-coded constants.
+- [ ] **Deep firmware-package RE (once updates work).** With a known-good flashing
+      path, dissect a firmware image to inventory undocumented features /
+      capabilities we could expose (extra LED modes, motion, button behaviours,
+      and the audio path below).
+- [ ] **Audio responsiveness via the headset jack.** Investigate forcing system
+      audio out through the controller's 3.5 mm jack (and/or driving the
+      audio-reactive LEDs from real audio). Probably depends on the firmware RE
+      above to understand the audio routing; pair with the host-side PipeWire
+      capture work already noted for audio-reactive lighting.
 
 ## 🔬 Open reverse-engineering questions (need USB captures)
 

@@ -18,3 +18,4 @@ AxisConfigPage 1.0 AxisConfigPage.qml
 ButtonsPage 1.0 ButtonsPage.qml
 VibrationPage 1.0 VibrationPage.qml
 BackupPanel 1.0 BackupPanel.qml
+HelpIcon 1.0 HelpIcon.qml

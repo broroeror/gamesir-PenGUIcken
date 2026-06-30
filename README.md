@@ -48,12 +48,20 @@ cd gamesir-PenGUIcken
 ```
 
 `install.sh` installs into your home (`~/.local`), so the only step that needs
-`sudo` is the one-time udev rule that lets you open the controller without root.
-Afterwards **GameSir Cyclone 2** appears in your app launcher (or run
-`gamesir-cyclone2`). Remove it with `./uninstall.sh`.
+`sudo` is the one-time udev rule that lets you open the controller without root —
+and it **prompts before running anything privileged**, showing the exact commands
+first. You can decline the udev step; the app still installs and launches, it just
+can't reach the controller until the rule is in place. Afterwards **GameSir
+Cyclone 2** appears in your app launcher (or run `gamesir-cyclone2`). Remove it
+with `./uninstall.sh`.
 
 Prefer the Arch-native route? A [`packaging/PKGBUILD`](packaging/PKGBUILD) is
-included to publish to the AUR (`yay -S gamesir-cyclone2-git`).
+included. It is **not published to the AUR yet**, so `yay`/`paru` can't find it by
+name — build it from the included file instead (no AUR account needed):
+
+```sh
+cd packaging && makepkg -si
+```
 
 ## Requirements
 
@@ -121,7 +129,9 @@ The controller exposes a **vendor HID interface** (USB VID `0x3537`) carrying a
 
 - **Input**: enhanced report `0x12` streams sticks, triggers, IMU, battery
   (byte 36 %, byte 35 bit0 = charging), and the extra buttons (L4/R4/M/Home/
-  Share in byte 60) that the standard PS4 report can't see.
+  Share in byte 60) that the standard PS4 report can't see. For what each control
+  reports to Linux as a normal gamepad (evdev codes, ranges, and why L4/R4/M are
+  firmware-only), see **[CONTROLLER_MAP.md](CONTROLLER_MAP.md)**.
 - **Commands** (output report `0x0F`, padded to 64):
   - Heartbeat `0F F2`
   - Get/Set profile `0F 0B` → `10 0C <p>` / `0F 07 <p>`

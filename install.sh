@@ -14,6 +14,21 @@ DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor"
 
 echo "==> Installing GameSir Cyclone 2 from: $REPO"
+echo "    This installs into your home (~/.local) and never needs root for the"
+echo "    app itself. The only step that uses sudo is the optional udev rule,"
+echo "    and it asks first."
+
+# Ask a yes/no question. Defaults to "no" if there's no terminal (so the script
+# never silently runs a privileged command in a non-interactive context).
+confirm() {
+  local ans
+  if [ ! -t 0 ]; then
+    echo "    (no terminal attached — assuming \"no\")"
+    return 1
+  fi
+  read -rp "$1 [y/N] " ans || return 1
+  [[ "${ans,,}" == y* ]]
+}
 
 # 1. dependencies -----------------------------------------------------------
 missing=()
@@ -21,13 +36,15 @@ command -v python3 >/dev/null || missing+=("python")
 python3 -c 'import PySide6' 2>/dev/null || missing+=("python-pyside6")
 python3 -c 'import hid'     2>/dev/null || missing+=("python-hidapi")
 if [ ${#missing[@]} -ne 0 ]; then
-  echo "!! Missing dependencies: ${missing[*]}"
+  echo
+  echo "==> Missing dependencies: ${missing[*]}"
   if command -v pacman >/dev/null; then
-    read -rp "   Install them now with pacman? [y/N] " a
-    if [[ "${a,,}" == y* ]]; then
+    echo "    These can be installed with (uses sudo):"
+    echo "        sudo pacman -S --needed python python-pyside6 python-hidapi"
+    if confirm "    Run that now?"; then
       sudo pacman -S --needed python python-pyside6 python-hidapi
     else
-      echo "   Run: sudo pacman -S --needed ${missing[*]}"; exit 1
+      echo "    Skipped. Install them yourself, then re-run this script."; exit 1
     fi
   else
     echo "   Install PySide6 and hidapi for Python 3 (e.g. pip install --user PySide6 hidapi),"
@@ -35,11 +52,32 @@ if [ ${#missing[@]} -ne 0 ]; then
   fi
 fi
 
-# 2. udev rule (one-time sudo) ---------------------------------------------
+# 2. udev rule (one-time sudo, optional) -----------------------------------
+RULE_OK=1
 if [ ! -f /etc/udev/rules.d/70-gamesir.rules ]; then
-  echo "==> Installing udev rule (use the controller without sudo)"
-  sudo cp "$REPO/70-gamesir.rules" /etc/udev/rules.d/
-  sudo udevadm control --reload-rules && sudo udevadm trigger
+  echo
+  echo "==> Controller access (udev rule)"
+  echo "    To open the controller without running the app as root, one file is"
+  echo "    copied into /etc/udev/rules.d/ and the rules are reloaded. The exact"
+  echo "    commands, which need sudo, are:"
+  echo "        sudo cp \"$REPO/70-gamesir.rules\" /etc/udev/rules.d/"
+  echo "        sudo udevadm control --reload-rules && sudo udevadm trigger"
+  if confirm "    Run these now?"; then
+    if sudo cp "$REPO/70-gamesir.rules" /etc/udev/rules.d/ \
+       && sudo udevadm control --reload-rules && sudo udevadm trigger; then
+      echo "    Installed."
+    else
+      RULE_OK=0
+      echo "    !! udev step failed — continuing without it (see the note below)."
+    fi
+  else
+    RULE_OK=0
+    echo "    Skipped. The app still installs and launches from your menu, but it"
+    echo "    can't reach the controller until the rule is in place. You can:"
+    echo "      • re-run ./install.sh and accept this step,"
+    echo "      • run the two commands above yourself later, or"
+    echo "      • launch it with sudo (not recommended)."
+  fi
 else
   echo "==> udev rule already installed"
 fi
@@ -83,3 +121,8 @@ case ":$PATH:" in
   *) echo "    (Note: add ~/.local/bin to your PATH to use the '$APP_ID' command.)" ;;
 esac
 echo "    Put the controller in Xbox mode first (hold the green button ~2s)."
+if [ "$RULE_OK" -ne 1 ]; then
+  echo
+  echo "    Reminder: the udev rule was not installed, so the app won't see the"
+  echo "    controller yet. Re-run ./install.sh (accepting the udev step) to fix."
+fi

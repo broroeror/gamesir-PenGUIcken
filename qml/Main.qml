@@ -37,6 +37,7 @@ Window {
             Layout.fillWidth: true
             Layout.preferredHeight: 58
             color: Theme.navBar
+            z: 100   // keep the mouse-mode help tooltip above the nav/content below
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 20
@@ -65,15 +66,27 @@ Window {
 
                 Item { Layout.fillWidth: true }
 
-                // Mouse-mode (KWin "sticks drive the cursor") quick toggle.
+                // Loads/unloads KDE's Game Controller (KWin) plugin so the
+                // sticks drive the desktop cursor. Labelled by what it does, with
+                // a help icon spelling out the plugin + on/off behaviour.
                 Row {
                     visible: bridge.mouseModeAvailable
                     Layout.alignment: Qt.AlignVCenter
                     spacing: 8
                     Text {
-                        text: "Mouse mode"; color: Theme.textDim
+                        text: "Sticks → cursor"; color: Theme.textDim
                         font.family: Theme.fontFamily; font.pixelSize: Theme.fontS
                         anchors.verticalCenter: parent.verticalCenter
+                    }
+                    HelpIcon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Toggles KDE's Game Controller (KWin) plugin.\n\n" +
+                              "On: the controller's sticks move your mouse pointer " +
+                              "and the triggers click — handy from the couch.\n\n" +
+                              "Off: the controller acts as a normal gamepad (games " +
+                              "still read it directly).\n\n" +
+                              "Same setting as System Settings → Game Controller; " +
+                              "applied live and remembered."
                     }
                     ToggleSwitch {
                         id: mmSwitch
