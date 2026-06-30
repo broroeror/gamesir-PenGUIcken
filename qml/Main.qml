@@ -257,6 +257,15 @@ Window {
                 Rectangle { width: parent.width; height: 1; color: Theme.cardBorder }
 
                 Text {
+                    text: "Firmware"; color: Theme.text
+                    font.family: Theme.fontFamily; font.pixelSize: Theme.fontM
+                    font.weight: Font.DemiBold
+                }
+                FirmwarePanel { width: parent.width }
+
+                Rectangle { width: parent.width; height: 1; color: Theme.cardBorder }
+
+                Text {
                     text: "Lighting"; color: Theme.text
                     font.family: Theme.fontFamily; font.pixelSize: Theme.fontM
                     font.weight: Font.DemiBold

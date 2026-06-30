@@ -19,7 +19,7 @@ Item {
     // trajectory/hair card moves into the slack beside the curve graph (centre)
     // so the middle space is used before scrolling.
     readonly property bool compact: scroller.availableHeight > 0
-                                    && scroller.availableHeight < 560
+                                    && scroller.availableHeight < 660
 
     function seed() {
         var c = bridge.config

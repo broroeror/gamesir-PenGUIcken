@@ -26,6 +26,7 @@ import gamesir_kf_cache as kf_cache
 import gamesir_kwin as kwin
 import gamesir_factory as factory
 import gamesir_backup as backup
+import gamesir_flash as flash
 from gamesir_led import LIGHTS
 
 from PySide6.QtCore import QUrl
@@ -103,6 +104,10 @@ class GamesirBridge(QObject):
     backupBusyChanged = Signal()
     backupProgress = Signal(int, int)   # done, total
     backupStatus = Signal(bool, str)    # ok, message
+    fwBusyChanged = Signal()
+    fwProgress = Signal(str)            # phase text (Entering loader / Writing / …)
+    fwStatus = Signal(bool, str)        # ok, message
+    fwVersionsChanged = Signal()        # library changed (e.g. after a backup)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -133,6 +138,7 @@ class GamesirBridge(QObject):
         self._config = {}               # friendly key -> loaded value
         self._pending = {}              # addr -> {'data','label','display'}
         self._backup_busy = False
+        self._fw_busy = False
 
         self._input_timer = QTimer(self)
         self._input_timer.setInterval(16)        # ~60 Hz
@@ -521,6 +527,64 @@ class GamesirBridge(QObject):
         backup.apply_backup(data,
                             on_progress=lambda d, t: self.backupProgress.emit(d, t),
                             on_done=self._backup_done)
+
+    # ------------------------------------------------------------- firmware flash
+    # Mirrors the backup pattern: a worker thread drives gamesir_flash (enter
+    # loader -> jl-uboot-tool write/read -> reset), reporting phase text. Loader
+    # entry reuses the app's own command channel (control.send_cmd) so we don't
+    # open a second hidraw handle alongside the reader thread.
+    @Property(bool, notify=fwBusyChanged)
+    def fwBusy(self):
+        return self._fw_busy
+
+    @Property('QVariantList', notify=fwVersionsChanged)
+    def fwVersions(self):
+        return [f['version'] for f in flash.list_firmware()
+                if f['kind'] == 'fw' and f['product'] == flash.PRODUCT]
+
+    def _fw_done(self, ok, msg):
+        self._fw_busy = False
+        self.fwBusyChanged.emit()
+        self.fwStatus.emit(ok, msg)
+        self.fwVersionsChanged.emit()      # a backup may have added a version
+        self._loaded_profile = None        # device changed underneath us
+        self._loaded_led_slot = None
+
+    def _fw_run(self, work, done_msg):
+        if self._fw_busy:
+            return
+        self._fw_busy = True
+        self.fwBusyChanged.emit()
+
+        def run():
+            try:
+                work()
+                ok, msg = True, done_msg()
+            except Exception as e:
+                ok, msg = False, str(e)
+            self._fw_done(ok, msg)
+        threading.Thread(target=run, daemon=True).start()
+
+    def _enter_loader_cmd(self):
+        control.send_cmd(0x0F, 0x17, 0x55, 0x88)
+
+    @Slot(str)
+    def flashFirmware(self, version):
+        prog = lambda p: self.fwProgress.emit(p)
+        self._fw_run(
+            lambda: flash.flash_version(version=version, on_progress=prog,
+                                        send=self._enter_loader_cmd),
+            lambda: f"Flashed firmware {version}.")
+
+    @Slot(str)
+    def backupFirmware(self, label):
+        prog = lambda p: self.fwProgress.emit(p)
+        out = {}
+        def work():
+            path, ver = flash.backup_current(label=label or None, on_progress=prog,
+                                             send=self._enter_loader_cmd)
+            out['ver'] = ver
+        self._fw_run(work, lambda: f"Backed up firmware {out.get('ver', '')}.")
 
     # ------------------------------------------------------------- config editor
     @Property('QVariantMap', notify=configLoaded)

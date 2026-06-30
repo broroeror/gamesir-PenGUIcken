@@ -1,0 +1,4 @@
+crcmod
+pyyaml
+pycryptodomex
+tqdm

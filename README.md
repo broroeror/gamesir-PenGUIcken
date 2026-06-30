@@ -71,12 +71,18 @@ cd packaging && makepkg -si
   (Arch: `python-pyside6`)
 - [`dearpygui`](https://pypi.org/project/dearpygui/) — only for the legacy app
 - `xrandr` (optional; legacy app's window placement)
+- **Firmware flashing only** (optional): `crcmod`, `pyyaml`, `pycryptodomex`,
+  `tqdm` — used by the vendored `jl-uboot-tool`. The rest of the app runs without
+  them; you only need them for the Firmware panel / `gamesir_flash.py`.
 
 ```sh
 # Arch
 sudo pacman -S --needed python python-pyside6 python-hidapi
+# optional, for firmware flashing:
+sudo pacman -S --needed python-crcmod python-yaml python-pycryptodomex python-tqdm
 # or via pip
 pip install hidapi PySide6
+pip install crcmod pyyaml pycryptodomex tqdm   # optional, firmware flashing
 ```
 
 ## Running
@@ -292,6 +298,47 @@ Open items: verify the inferred RT block; View/Menu/L4/R4 *target* codes (not
 yet captured as targets); how a profile switch syncs bank `0x01` to a store (a
 `SET-PROFILE` + re-read test); and PS4/Switch-mode input parsing.
 
+## Firmware updates
+
+The Cyclone 2's MCU is a **JieLi BR23** (AC635N/AC695N). The vendor command
+`0f 17 55 88` (on the same `0x0f` channel as everything else) reboots it into its
+**BR23 UBOOT** loader — a USB mass-storage device (vid `0x4c4a`, product
+`UBOOT1.00`) that exposes the 1 MB SPI-NOR flash for read/erase/write over SCSI.
+The official `.ufw` packages are encrypted, so instead of decoding them we flash
+**raw images dumped from controllers you own**.
+
+- **`gamesir_loader.py`** — sends `0f 17 55 88` and reports the loader's USB id.
+- **`gamesir_flash.py`** — the flasher: enters the loader, then drives the
+  vendored [`jl-uboot-tool`](#vendored-tooling) to write/read flash, with
+  verify-after-write and safety rails. CLI: `status` / `list` / `backup` /
+  `flash <ver>` / `reset`.
+- **In-app:** *Settings (⚙) → Firmware* — pick a version and flash it, or back up
+  the current firmware to your library.
+
+The flash library lives in `firmware/` (git-ignored — no vendor firmware is
+redistributed; you populate it with **Back up current firmware**):
+
+- `cyclone2_<ver>_fw.bin` — firmware region only (`0x0–0x76fff`). This is the
+  default flash: it **preserves your calibration/settings** (the config sectors at
+  `0x0f7000`/`0x0fe000` are left untouched). Verified upgrading *and* downgrading
+  3.26 ↔ 3.52 with settings intact.
+- `cyclone2_<ver>_full.bin` / `backups/` — full 1 MB images (overwrite config too).
+
+**Brick-proof:** the BR23 mask-ROM auto-enters UBOOT whenever the flash holds no
+valid firmware, so an interrupted/bad write is recovered by a power-cycle + another
+flash. The ROM is untouchable. (The one irreversible op — burning the chipkey — is
+never invoked.)
+
+**No `sudo`:** the loader's SCSI node is granted to your user by the same udev
+rule (`70-gamesir.rules`, the `0x4c4a` `scsi_generic` line) — `/dev/sg` is
+permission-gated, so no `CAP_SYS_RAWIO` is needed.
+
+<a name="vendored-tooling"></a>
+**Vendored tooling.** `jl-uboot-tool/` is a vendored copy of
+[kagaimiq/jl-uboot-tool](https://github.com/kagaimiq/jl-uboot-tool) (MIT,
+see its `LICENSE`) — the JieLi loader client that performs the actual SCSI
+flash I/O.
+
 ## License & disclaimer
 
 Released under the [MIT License](LICENSE) — use, modify, and redistribute
@@ -300,7 +347,9 @@ freely.
 This is an independent, hobby reverse-engineering project. It is **not
 affiliated with, endorsed by, or supported by GameSir**, and "GameSir" and
 "Cyclone 2" are trademarks of their respective owners. The protocol was
-reverse-engineered for interoperability; the repository contains only original
-code (no vendor firmware, USB captures, or third-party assets). Provided **as
-is, without warranty** — you use it, and poke at your controller's registers,
-at your own risk.
+reverse-engineered for interoperability; the repository contains original code
+plus one vendored third-party tool ([`jl-uboot-tool`](jl-uboot-tool/), MIT) used
+for firmware flashing — and **no vendor firmware or USB captures** (firmware
+images are dumped by you, from controllers you own, and are git-ignored).
+Provided **as is, without warranty** — you use it, and poke at (and reflash) your
+controller, at your own risk.

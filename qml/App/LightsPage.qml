@@ -19,7 +19,7 @@ Item {
     // the Power card moves into the slack under the controller (centre) so the
     // empty middle space is used before falling back to scrolling.
     readonly property bool compact: scroller.availableHeight > 0
-                                    && scroller.availableHeight < 600
+                                    && scroller.availableHeight < 700
 
     Component.onCompleted: syncFromBridge()
 
@@ -266,7 +266,10 @@ Item {
                     spacing: 14
                 ControllerView {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: Math.min(implicitWidth, centerArea.width - 24)
+                    // Cap the render when the viewport is short so the reparented
+                    // Power card and side columns aren't pushed off the bottom.
+                    width: Math.min(implicitWidth, centerArea.width - 24,
+                                    page.compact ? 200 : 100000)
                     height: width / aspect
                 }
                 // Flow (not Row) so the four zone chips wrap to a 2×2 block when

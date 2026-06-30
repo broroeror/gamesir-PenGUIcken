@@ -16,6 +16,13 @@ USBPcap Controller Tests/
 *.pcapng
 *.pcap
 
+# Local RE/testing scratch area: vendor Windows apps (GameSir Connect / Nexus),
+# their bundled .ufw firmware packages, raw flash dumps, and per-controller
+# captures/screenshots. ALL third-party/proprietary or device-specific - never
+# commit. Kept locally only.
+Controller Testing/
+*.ufw
+
 # Local backups exported by the app
 gamesir_backup_*.json
 
@@ -24,3 +31,6 @@ gamesir_backup_*.json
 Icons and Images/
 *.zip
 
+
+# Firmware images (GameSir firmware - not redistributed; build your own via Backup)
+firmware/**/*.bin

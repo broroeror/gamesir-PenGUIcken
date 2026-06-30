@@ -16,6 +16,10 @@ arch=('any')
 url="https://github.com/broroeror/gamesir-PenGUIcken"
 license=('MIT')
 depends=('python' 'python-pyside6' 'python-hidapi')
+optdepends=('python-crcmod: firmware flashing (jl-uboot-tool)'
+            'python-yaml: firmware flashing (jl-uboot-tool)'
+            'python-pycryptodomex: firmware flashing (jl-uboot-tool)'
+            'python-tqdm: firmware flashing (jl-uboot-tool)')
 makedepends=('git')
 provides=('gamesir-cyclone2')
 conflicts=('gamesir-cyclone2')
@@ -36,6 +40,10 @@ package() {
   install -Dm644 gamesir_*.py gs_*.py "$share"/
   cp -r qml "$share"/
   install -Dm644 assets/icon.png "$share"/assets/icon.png
+
+  # vendored firmware-flash tool (jl-uboot-tool); drop any local venv
+  cp -r jl-uboot-tool "$share"/
+  rm -rf "$share/jl-uboot-tool/venv"
 
   # launcher
   install -dm755 "$pkgdir/usr/bin"

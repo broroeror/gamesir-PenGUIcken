@@ -25,6 +25,17 @@ the README's protocol notes or the commit message.
       `RenderLoop::activeWindowControlsVrrRefreshRate()` during compositor
       teardown, on multi-output + hybrid NVIDIA/AMD. Workaround: System Settings →
       Display → Adaptive Sync → *Never*. Worth reporting upstream to KDE.
+- [x] **UI scaling: elements cut off on some pages.** *Fixed:* the `compact`
+      reparent threshold on **Sticks/Triggers** (`AxisConfigPage`) was mistuned
+      (560) so the Trajectory/Hair card stayed in the overflowing left column even
+      at the default window size — raised to 660 so it moves into the centre slack
+      before clipping. **Lights** threshold raised (600→700) and the controller
+      render is now capped (200 px) when the viewport is short. All three pages now
+      fit at the default 1040×720; Sticks/Triggers fit down to the 840×620 minimum
+      too. The densest page (Lights) may still need a small scroll at the absolute
+      minimum size, which the existing `ScrollView` handles. *(Verified by rendering
+      each page offscreen at 620 & 720.)* The Settings overlay (with Firmware) fits
+      fine as-is.
 
 ## ✨ Enhancements / proposed changes
 
@@ -65,11 +76,19 @@ These are the project's north-star goals — larger efforts, several of which ch
 off firmware reverse-engineering. Hardware on hand: **a 2nd Cyclone 2** (bought as
 a sacrificial unit for firmware experiments) and **a GameSir G7**.
 
-- [ ] **Firmware updates from Linux.** The headline long-term goal. Capture the
-      official updater's USB traffic (DFU/bootloader entry, block transfer, verify,
-      reboot) and reproduce the flashing flow. *Use the spare Cyclone 2 as the
-      guinea pig* — a botched flash could brick it, so never test on the daily
-      driver first.
+- [x] **Firmware updates from Linux.** *Done.* The MCU is a JieLi **BR23**
+      (AC635N/AC695N); the vendor command `0f 17 55 88` reboots it into its BR23
+      UBOOT loader (USB mass-storage, vid `0x4c4a`), which exposes SPI-NOR
+      read/erase/write over SCSI. We drive that with the vendored, MIT-licensed
+      **jl-uboot-tool** (kagaimiq). `gamesir_flash.py` adds loader entry, a local
+      firmware library, verify-after-write and safety rails; `gamesir_loader.py`
+      just enters the loader. There's an in-app **Settings → Firmware** panel
+      (pick a version → flash, or back up current). Default flash is
+      *firmware-region only* (`0x0–0x76fff`) so calibration/settings survive;
+      verified 3.26↔3.52 both ways. Brick-proof: a bad write drops to UBOOT on the
+      next power-cycle (mask-ROM), so you can always re-flash. No `sudo` once the
+      `0x4c4a` udev rule is installed. *(The `.ufw` packages are encrypted; we flash
+      raw images dumped from controllers you own — none are redistributed.)*
 - [ ] **Expand support to the GameSir G7.** First confirm how much of the existing
       Cyclone 2 stack (vendor channel, register map, LED/config banks) already
       applies to the G7 vs. what differs. Likely needs its own register map +
