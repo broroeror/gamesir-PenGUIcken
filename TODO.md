@@ -116,11 +116,15 @@ as a sacrificial unit for firmware experiments) and a **GameSir G7 Pro**
       - [ ] **G7 Pro config protocol** — the Pro (`0x1022`) has a vendor `0xfff0`
         collection (`hidraw14`) whose protocol is NOT captured; needs G7 Pro USB
         captures before its editor fields can work (its profile currently exposes no
-        config). May differ from the plain G7's map.
-      - [ ] **G7 battery** — evdev doesn't expose it; read `/sys/class/power_supply`
-        for the controller instead (currently shows 0 for G7-family).
-      - [ ] **G7 stick Y-orientation** — sanity-check the vertical axis direction in
-        the live app (evdev "up" = axis min; may need a per-profile invert).
+        config). May differ from the plain G7's map. *Also gates the paddles:* the
+        L4/R4/L5/R5 back buttons emit NO evdev events (firmware-only, like the
+        Cyclone's L4/R4/M — verified), so showing/remapping them needs this channel.
+      - [x] **G7 stick orientation** — *verified correct.* LS up → `ly=0`, down →
+        `ly=255` (matches the QML's `center + ay·r` mapping); X works by the same
+        evdev min=left convention. No per-profile invert needed.
+      - [~] **G7 battery** — N/A over USB: a wired G7 Pro exposes no
+        `/sys/class/power_supply` node, so there's nothing to read (shows 0). Would
+        only apply to a wireless/dongle connection; revisit if that's ever used.
 - [ ] **Deep firmware-package RE (once updates work).** With a known-good flashing
       path, dissect a firmware image to inventory undocumented features /
       capabilities we could expose (extra LED modes, motion, button behaviours,
