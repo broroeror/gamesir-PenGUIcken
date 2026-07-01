@@ -8,6 +8,7 @@ Survives unplugging the cable (it keeps working over the 2.4GHz dongle), mode
 switches, and hidraw node renumbering on re-enumeration.
 """
 
+import fcntl
 import os
 import select
 import struct
@@ -141,6 +142,22 @@ def read_controller():
 
         sel = _pick_selected(controllers)
         state['selected'] = sel['id']
+        prof = profiles.by_product_id(sel['pid'])
+        profiles.set_active(prof)                      # rest of app follows this
+        state['controller'] = prof.short if prof else None
+        state['firmware'] = read_firmware_version(sel['pid'])   # USB bcdDevice
+
+        # G7-family: input arrives over evdev (standard gamepad), not a vendor
+        # hidraw stream, so read that instead of the Cyclone 0x12 path.
+        if prof is not None and prof.input_style == 'evdev':
+            state['connected'] = True
+            read_session_evdev(sel['id'])   # blocks until drop / switch
+            state['connected'] = False
+            state['mode_ok'] = False
+            time.sleep(0.3)
+            continue
+
+        # Cyclone: vendor hidraw 0x12 stream.
         devnode = pick_live_node(sel['nodes'])
         if not devnode:
             state['connected'] = False
@@ -155,11 +172,7 @@ def read_controller():
             time.sleep(1.0)
             continue
 
-        prof = profiles.by_product_id(sel['pid'])
-        profiles.set_active(prof)                      # rest of app follows this
-        state['controller'] = prof.short if prof else None
         state['connected'] = True
-        state['firmware'] = read_firmware_version(sel['pid'])   # USB bcdDevice
         read_session(device, sel['id'])   # blocks until drop / switch
         state['connected'] = False
         state['mode_ok'] = False
@@ -170,14 +183,162 @@ def read_controller():
         time.sleep(0.3)   # brief pause before reconnecting
 
 
-# --- press-to-select --------------------------------------------------------
+# --- evdev input path (G7 family) -------------------------------------------
 # struct input_event { struct timeval time; __u16 type, code; __s32 value; }
-# 64-bit timeval = 2*long -> 24 bytes total.
+# 64-bit timeval = 2*long -> 24 bytes total. (Shared with press_select_loop.)
 _EV_FMT = 'llHHi'
 _EV_SIZE = struct.calcsize(_EV_FMT)
-_EV_KEY = 1
+_EV_KEY, _EV_ABS = 1, 3
 
 
+# EVIOCGABS(code) = _IOR('E', 0x40+code, struct input_absinfo) — read an axis's
+# min/max so we can normalise it to the app's 0..255 (sticks) / 0..255 (triggers).
+def _eviocgabs(code):
+    return (2 << 30) | (24 << 16) | (ord('E') << 8) | (0x40 + code)
+
+
+_KEY_TO_STATE = {           # Linux gamepad button codes -> state keys
+    0x130: 'a', 0x131: 'b', 0x133: 'y', 0x134: 'x',
+    0x136: 'lb', 0x137: 'rb', 0x13a: 'view', 0x13b: 'menu',
+    0x13c: 'home', 0x13d: 'ls', 0x13e: 'rs',
+    0x138: 'lt_d', 0x139: 'rt_d',
+}
+# ABS axis codes we care about (ignoring the HAT dpad, handled separately).
+_ABS_CANDIDATES = (0, 1, 2, 3, 4, 5, 9, 10)
+_HAT = {(0, 0): 'neutral', (0, -1): 'up', (1, -1): 'up-right', (1, 0): 'right',
+        (1, 1): 'down-right', (0, 1): 'down', (-1, 1): 'down-left',
+        (-1, 0): 'left', (-1, -1): 'up-left'}
+
+
+def _axis_map(present):
+    """Map a device's PRESENT ABS codes to state keys, handling both gamepad
+    conventions: classic (right stick = RX/RY 3/4, triggers = Z/RZ 2/5) and
+    modern (right stick = Z/RZ 2/5, triggers = GAS/BRAKE 9/10, as on the G7 Pro).
+    Left stick is always X/Y."""
+    m = {}
+    if 0 in present:
+        m[0] = 'lx'
+    if 1 in present:
+        m[1] = 'ly'
+    if 3 in present and 4 in present:       # classic: RS on RX/RY
+        m[3] = 'rx'; m[4] = 'ry'
+        if 2 in present:
+            m[2] = 'lt'
+        if 5 in present:
+            m[5] = 'rt'
+    else:                                   # modern: RS on Z/RZ
+        if 2 in present:
+            m[2] = 'rx'
+        if 5 in present:
+            m[5] = 'ry'
+    if 9 in present:                        # ABS_GAS = RT
+        m[9] = 'rt'
+    if 10 in present:                       # ABS_BRAKE = LT
+        m[10] = 'lt'
+    return m
+
+
+def _scale(value, lo, hi):
+    """Normalise an evdev axis value in [lo,hi] to 0..255."""
+    if hi <= lo:
+        return 128
+    return max(0, min(255, round((value - lo) * 255 / (hi - lo))))
+
+
+def _absinfo(fd, code):
+    """(min, max) for an axis on this fd, or None if it lacks the axis."""
+    buf = bytearray(24)
+    try:
+        fcntl.ioctl(fd, _eviocgabs(code), buf, True)
+    except OSError:
+        return None
+    _v, mn, mx, _f, _fl, _r = struct.unpack('6i', bytes(buf))
+    return (mn, mx) if mx > mn else None
+
+
+def read_session_evdev(driving_id):
+    """Read one G7-family controller's live input over evdev until it errors, is
+    unplugged, or the user selects another controller. Maps standard gamepad
+    events into the shared `state` (sticks/triggers normalised to 0..255)."""
+    from gamesir_input_diag import parse_devices, VENDOR_VID
+    fds = {}                # fd -> path
+    axmap = {}              # fd -> {abs_code: state_key} for this device
+    ranges = {}             # (fd, code) -> (min, max)
+    for d in parse_devices():
+        if d['vendor'] != VENDOR_VID:
+            continue
+        for ev in d['events']:
+            if evdev_port(ev) != driving_id:
+                continue
+            try:
+                fd = os.open(ev, os.O_RDONLY | os.O_NONBLOCK)
+            except OSError:
+                continue
+            fds[fd] = ev
+            present = {}     # code -> (min, max) for axes this node actually has
+            for code in _ABS_CANDIDATES:
+                r = _absinfo(fd, code)
+                if r:
+                    present[code] = r
+            axmap[fd] = _axis_map(set(present))
+            for code, rng in present.items():
+                ranges[(fd, code)] = rng
+    if not fds:
+        time.sleep(1.0)
+        return
+
+    state['mode_ok'] = True
+    hat = {'x': 0, 'y': 0}
+    last_scan = time.time()
+    try:
+        while True:
+            now = time.time()
+            if now - last_scan > 1.0:
+                last_scan = now
+                ids = [c['id'] for c in _rescan()]
+                if driving_id not in ids:               # unplugged
+                    break
+                sel = state.get('selected')
+                if sel in ids and sel != driving_id:    # user switched
+                    break
+            r, _, _ = select.select(list(fds), [], [], 0.2)
+            for fd in r:
+                try:
+                    data = os.read(fd, _EV_SIZE * 64)
+                except BlockingIOError:
+                    continue
+                except OSError:
+                    return                               # node vanished
+                for i in range(0, len(data) - _EV_SIZE + 1, _EV_SIZE):
+                    _, _, etype, code, value = struct.unpack(_EV_FMT, data[i:i + _EV_SIZE])
+                    if etype == _EV_KEY:
+                        k = _KEY_TO_STATE.get(code)
+                        if k:
+                            state[k] = bool(value)
+                    elif etype == _EV_ABS:
+                        key = axmap[fd].get(code)
+                        if key:
+                            rng = ranges.get((fd, code))
+                            if rng:
+                                state[key] = _scale(value, *rng)
+                        elif code == 16:                 # ABS_HAT0X
+                            hat['x'] = (value > 0) - (value < 0)
+                            state['dpad'] = _HAT.get((hat['x'], hat['y']), 'neutral')
+                        elif code == 17:                 # ABS_HAT0Y
+                            hat['y'] = (value > 0) - (value < 0)
+                            state['dpad'] = _HAT.get((hat['x'], hat['y']), 'neutral')
+    except Exception:
+        pass
+    finally:
+        for fd in list(fds):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        state['mode_ok'] = False
+
+
+# --- press-to-select --------------------------------------------------------
 def _maybe_select(port):
     """Switch to `port` if it's a connected controller other than the current
     one. No-op with a single controller (nothing to switch between)."""

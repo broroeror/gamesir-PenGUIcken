@@ -64,7 +64,7 @@ class ControllerProfile:
     short: str                             # short label (status line)
     usb_products: tuple                    # USB product ids that identify it
     write_style: str = 'cyclone'           # 'cyclone' bare 0f03 / 'g7' enveloped
-    input_style: str = 'cyclone_0x12'      # 'cyclone_0x12' / 'g7_gip'
+    input_style: str = 'cyclone_0x12'      # 'cyclone_0x12' (vendor hidraw) / 'evdev'
     profile_banks: tuple = (1, 2, 3, 4)    # banks that hold editable profiles
 
     # vibration
@@ -188,7 +188,7 @@ G7 = ControllerProfile(
     short='G7',
     usb_products=(0x10ba,),
     write_style='g7',
-    input_style='g7_gip',
+    input_style='evdev',
     profile_banks=(1,),                     # single editable bank observed
     VIB_L=0x0020, VIB_R=0x0021,             # grip vibration L/R
     POLL_RATE=0x0030,                       # report rate (encoding differs)
@@ -224,8 +224,24 @@ G7 = ControllerProfile(
 )
 
 
+# --- G7 Pro : GameSir G7 Pro (3537:1022) ------------------------------------
+# A different model from the plain G7: a standard HID composite (HID gamepad on
+# one interface, keyboard/mouse/consumer + a vendor 0xfff0 collection on another)
+# rather than a GIP/Xbox device. Live input comes over evdev (the standard
+# gamepad interface). Its config protocol (over the 0xfff0 vendor node) is NOT
+# yet reverse-engineered, so config fields are unset (TODO: capture the G7 Pro).
+G7_PRO = ControllerProfile(
+    name='GameSir G7 Pro',
+    short='G7 Pro',
+    usb_products=(0x1022,),
+    write_style='g7',
+    input_style='evdev',
+    profile_banks=(1,),
+)
+
+
 # --- registry + detection ----------------------------------------------------
-ALL = (CYCLONE, G7)
+ALL = (CYCLONE, G7, G7_PRO)
 DEFAULT = CYCLONE
 
 
