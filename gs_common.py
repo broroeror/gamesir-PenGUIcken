@@ -151,6 +151,23 @@ def evdev_port(event_node):
     return f'{bus}-{devpath}'
 
 
+def device_serial(devnode):
+    """USB serial string for a /dev/hidrawN node, or '' if it has none.
+
+    The GameSir 2.4GHz dongle (receiver) reports a USB serial; a directly-wired
+    Cyclone controller reports none. So a non-empty serial here means the device
+    is the WIRELESS DONGLE, not a wired controller — which the firmware flasher
+    uses to refuse flashing over the dongle (that bricks it)."""
+    name = os.path.basename(devnode)
+    devdir = _usb_device_dir(os.path.join('/sys/class/hidraw', name))
+    if devdir is None:
+        return ''
+    try:
+        return open(os.path.join(devdir, 'serial')).read().strip()
+    except OSError:
+        return ''
+
+
 def connected_product_ids():
     """USB product ids (ints) of all connected GameSir vendor interfaces.
 

@@ -43,7 +43,8 @@ import time
 
 import hid
 
-from gs_common import find_vendor_hidraw, read_firmware_version, pad
+from gs_common import (find_vendor_hidraw, read_firmware_version, pad,
+                       device_serial)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FW_DIR = os.path.join(HERE, 'firmware')
@@ -117,6 +118,26 @@ def _send_enter_loader_hid():
         sys.stderr.write(f"(enter-loader write: {e})\n")
 
 
+def _guard_wired():
+    """Refuse to enter the loader if the connected GameSir device is the 2.4GHz
+    WIRELESS DONGLE rather than a directly-wired controller.
+
+    Over wireless the dongle is the USB-facing chip, so the enter-loader command
+    and the raw flash writes hit the DONGLE and brick it. The dongle reports a
+    USB serial; a wired controller does not — that's the discriminator."""
+    node, _name, _ = find_vendor_hidraw()
+    if not node:
+        return                      # nothing connected; loader-wait handles it
+    serial = device_serial(node)
+    if serial:
+        raise FlashError(
+            "Refusing to flash: the controller appears to be connected over the "
+            f"2.4GHz WIRELESS DONGLE (USB serial {serial}). Flashing over the "
+            "dongle writes to the dongle's own chip and WILL BRICK IT.\n"
+            "  → Connect the controller DIRECTLY with a USB cable, in Xbox mode "
+            "(hold the green button ~2s), then retry.")
+
+
 def enter_loader(timeout=8.0, send=None):
     """Ensure the controller is in BR23 UBOOT; return its /dev/sgN path.
 
@@ -124,6 +145,8 @@ def enter_loader(timeout=8.0, send=None):
     command and wait for the loader to appear. `send` is an optional callable
     that emits the command over an existing channel (the GUI passes its own
     control writer so we don't open a second hidraw handle); default uses hidraw.
+
+    Refuses if the connection is the 2.4GHz dongle (flashing over it bricks it).
     """
     try:
         existing = _find_loader()
@@ -131,6 +154,8 @@ def enter_loader(timeout=8.0, send=None):
         existing = None
     if existing:
         return existing
+
+    _guard_wired()                  # never flash over the wireless dongle
 
     before = _sg_nodes()
     (send or _send_enter_loader_hid)()

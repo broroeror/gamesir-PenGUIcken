@@ -114,6 +114,14 @@ Column {
 
     Text {
         width: parent.width; wrapMode: Text.WordWrap
+        text: "⚠ Wired only: connect the controller with a USB cable, NOT the 2.4GHz " +
+              "dongle. Flashing over the dongle writes to the dongle and bricks it — " +
+              "the app will refuse it, but plug in directly to flash."
+        color: Theme.warn; font.family: Theme.fontFamily; font.pixelSize: Theme.fontS
+    }
+
+    Text {
+        width: parent.width; wrapMode: Text.WordWrap
         text: "Safe: an interrupted flash isn’t fatal — the controller re-enters its " +
               "loader on the next power-cycle so you can re-flash. Flashing briefly " +
               "disconnects the controller; don’t unplug until it finishes."

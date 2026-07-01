@@ -44,6 +44,16 @@ the README's protocol notes or the commit message.
       stays reachable at 840 / 1040 / 1240 (verified by offscreen render). This also
       made room for the new controller picker.
 
+- [x] **Firmware flasher could flash over the 2.4GHz dongle and brick it.**
+      *Fixed:* flashing over the wireless dongle writes to the dongle's own chip
+      (it's the USB-facing JieLi part) and bricks it. `enter_loader()` now calls a
+      `_guard_wired()` check that refuses when the target reports a USB serial —
+      the dongle has one, a directly-wired controller doesn't. Covers the CLI and
+      the in-app panel (both funnel through `enter_loader`); the panel also shows a
+      wired-only ⚠ note. *(Found the hard way while testing — a dongle got bricked;
+      also note flashing a non-own library image changes the controller's USB
+      identity and drops its dongle pairing.)*
+
 ## ✨ Enhancements / proposed changes
 
 - [ ] **Bind the mouse-mode toggle to a controller button** via the controller's
