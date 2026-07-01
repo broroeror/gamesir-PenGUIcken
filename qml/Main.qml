@@ -42,7 +42,7 @@ Window {
                 anchors.fill: parent
                 anchors.leftMargin: 20
                 anchors.rightMargin: 20
-                spacing: 18
+                spacing: win.width < 1000 ? 10 : 18
 
                 // Logo
                 RowLayout {
@@ -64,7 +64,7 @@ Window {
 
                 ControllerPicker { Layout.alignment: Qt.AlignVCenter }
 
-                ProfileBar {}
+                ProfileBar { compact: win.width < 1200 }
 
                 Item { Layout.fillWidth: true }
 
@@ -76,6 +76,7 @@ Window {
                     Layout.alignment: Qt.AlignVCenter
                     spacing: 8
                     Text {
+                        visible: win.width >= 1000   // hide label when narrow; help icon still explains
                         text: "Sticks → cursor"; color: Theme.textDim
                         font.family: Theme.fontFamily; font.pixelSize: Theme.fontS
                         anchors.verticalCenter: parent.verticalCenter
@@ -104,7 +105,7 @@ Window {
                     width: 1; height: 24; color: Theme.cardBorder
                 }
 
-                StatusPill {}
+                StatusPill { compact: win.width < 1000 }
 
                 Rectangle {
                     Layout.alignment: Qt.AlignVCenter
