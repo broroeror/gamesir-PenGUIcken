@@ -62,6 +62,8 @@ Window {
                     }
                 }
 
+                ControllerPicker { Layout.alignment: Qt.AlignVCenter }
+
                 ProfileBar {}
 
                 Item { Layout.fillWidth: true }

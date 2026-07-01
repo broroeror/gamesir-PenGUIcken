@@ -95,6 +95,7 @@ class GamesirBridge(QObject):
     configLoaded = Signal()         # fired when a profile's config is read back
     pendingChanged = Signal()       # number of queued (unsaved) config edits
     controllerChanged = Signal()    # detected controller model (Cyclone/G7) changed
+    controllersChanged = Signal()   # the set of connected controllers changed
     backupBusyChanged = Signal()
     backupProgress = Signal(int, int)   # done, total
     backupStatus = Signal(bool, str)    # ok, message
@@ -109,6 +110,7 @@ class GamesirBridge(QObject):
         # (avoids waking every QML binding 60x/s for nothing).
         self._input_sig = None
         self._status_sig = None
+        self._controllers_sig = None
 
         # Per-zone display colors for the controller render. Driven by the Lights
         # page; seeded from each zone's factory default so the render looks lit.
@@ -201,6 +203,12 @@ class GamesirBridge(QObject):
         if sig != self._status_sig:
             self._status_sig = sig
             self.statusChanged.emit()
+
+        csig = (tuple((c['id'], c['name']) for c in state['controllers']),
+                state['selected'])
+        if csig != self._controllers_sig:
+            self._controllers_sig = csig
+            self.controllersChanged.emit()
 
     def _poll_lighting(self):
         """Read the active lighting slot's real state once, whenever the active
@@ -372,6 +380,34 @@ class GamesirBridge(QObject):
     def controllerName(self):
         """Detected controller model ('Cyclone 2' / 'G7'), or '' if unknown."""
         return state['controller'] or ''
+
+    @Property('QVariantList', notify=controllersChanged)
+    def controllers(self):
+        """All connected controllers for the picker: [{id, name, port, label}].
+        Identical models (serials are empty) get a compact '#n' suffix to keep the
+        top bar tight; the exact USB port stays in `port` for a tooltip / detail."""
+        clist = state['controllers']
+        names = [c['name'] for c in clist]
+        out = []
+        for i, c in enumerate(clist):
+            dup = names.count(c['name']) > 1
+            n = sum(1 for j in range(i + 1) if clist[j]['name'] == c['name'])
+            label = f"{c['name']} #{n}" if dup else c['name']
+            out.append({'id': c['id'], 'name': c['name'],
+                        'port': c['port'], 'label': label})
+        return out
+
+    @Property(str, notify=controllersChanged)
+    def selectedController(self):
+        """id (USB port) of the controller currently being driven."""
+        return state['selected'] or ''
+
+    @Slot(str)
+    def selectController(self, cid):
+        """Switch which connected controller the app drives. The reader picks
+        this up on its next scan and reconnects to it."""
+        if cid and cid != state['selected']:
+            state['selected'] = cid
 
     # ------------------------------------------------------------- lighting view
     @Property('QVariantList', constant=True)

@@ -3,6 +3,7 @@ singleton Theme 1.0 Theme.qml
 Card 1.0 Card.qml
 NavTab 1.0 NavTab.qml
 ProfileBar 1.0 ProfileBar.qml
+ControllerPicker 1.0 ControllerPicker.qml
 StatusPill 1.0 StatusPill.qml
 ControllerView 1.0 ControllerView.qml
 AccentSlider 1.0 AccentSlider.qml

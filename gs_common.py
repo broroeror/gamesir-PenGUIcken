@@ -24,17 +24,22 @@ def pad(*payload):
     return list(payload) + [0x00] * (REPORT_LEN - len(payload))
 
 
-def read_firmware_version():
+def read_firmware_version(product_id=None):
     """Return the controller firmware version string (e.g. '3.52'), or None.
 
     The official Windows app's Info button makes NO network or USB-command
     traffic (captures 22/24): the version comes straight from the USB device
     descriptor's bcdDevice field, which the OS already has from enumeration.
     hidapi exposes it as `release_number`; bcdDevice is BCD-encoded as JJ.MN
-    (high byte = major, low byte = minor), so 0x0352 -> '3.52'."""
+    (high byte = major, low byte = minor), so 0x0352 -> '3.52'.
+
+    `product_id` narrows the match to a specific model when several GameSir
+    controllers are connected (else the first vendor device is used)."""
     try:
         rel = next((d.get('release_number', 0) for d in hid.enumerate()
-                    if d.get('vendor_id') == VENDOR_VID), None)
+                    if d.get('vendor_id') == VENDOR_VID
+                    and (product_id is None or d.get('product_id') == product_id)),
+                   None)
     except Exception:
         return None
     if not rel:
@@ -192,6 +197,21 @@ def _streams_live_data(devnode, secs=1.0):
         except Exception:
             pass
     return live
+
+
+def pick_live_node(devnodes):
+    """From ONE controller's candidate /dev/hidraw* nodes, return the one that
+    carries live enhanced data, or the first if we can't tell. A wired Cyclone
+    exposes an empty + a real interface, so we probe and prefer the populated
+    0x12 stream. (A G7 speaks GIP, not 0x12, so it falls through to the first.)"""
+    if not devnodes:
+        return None
+    if len(devnodes) == 1:
+        return devnodes[0]
+    for n in devnodes:
+        if _streams_live_data(n):
+            return n
+    return devnodes[0]
 
 
 def find_vendor_hidraw():

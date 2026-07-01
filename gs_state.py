@@ -23,6 +23,8 @@ state = {
     'mode_ok': False,    # True when we're getting a populated Xbox-mode 0x12 report
     'firmware': None,    # firmware version string from USB bcdDevice (e.g. '3.52')
     'controller': None,  # detected model short name ('Cyclone 2'/'G7'), else None
+    'controllers': [],   # all connected controllers: [{id, name, port, pid}]
+    'selected': None,    # id (USB port) of the controller currently being driven
 }
 
 EXTRA_BTNS = ('l4', 'r4', 'm', 'home', 'share')

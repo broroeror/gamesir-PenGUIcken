@@ -12,8 +12,7 @@ import threading
 import time
 import hid
 
-from gs_common import (find_vendor_hidraw, read_firmware_version,
-                       connected_product_ids)
+from gs_common import find_controllers, pick_live_node, read_firmware_version
 from gamesir_enhanced import parse_enhanced
 from gs_state import state
 import gamesir_control as control
@@ -43,14 +42,49 @@ def maintenance_loop(alive):
         time.sleep(0.5)
 
 
-def read_session(device):
-    """Read one open device until it errors/disconnects. Returns on failure."""
+def _label(ctrl):
+    """Public shape of a controller for the UI picker."""
+    prof = profiles.by_product_id(ctrl['pid'])
+    return {'id': ctrl['id'], 'name': prof.short if prof else 'Unknown',
+            'port': ctrl['port'], 'pid': ctrl['pid']}
+
+
+def _publish_controllers(controllers):
+    state['controllers'] = [_label(c) for c in controllers]
+
+
+def _pick_selected(controllers):
+    """Drive the user's selected controller if it's still connected, otherwise
+    default to the first one found."""
+    sel = state.get('selected')
+    for c in controllers:
+        if c['id'] == sel:
+            return c
+    return controllers[0]
+
+
+def read_session(device, driving_id):
+    """Read one open controller until it errors, is unplugged, or the user
+    selects a DIFFERENT controller. Returns so read_controller can reconnect.
+
+    `driving_id` is the controller we opened; we rescan ~1 Hz to keep the picker
+    list fresh and to notice an unplug / a selection change without blocking."""
     control.set_device(device)
     alive = [True]
     threading.Thread(target=maintenance_loop, args=(alive,), daemon=True).start()
+    last_scan = 0.0
     try:
         while True:
             control.pump_reads()   # keep queued register reads moving
+            now = time.time()
+            if now - last_scan > 1.0:
+                last_scan = now
+                ids = [c['id'] for c in _rescan()]
+                if driving_id not in ids:           # our controller unplugged
+                    break
+                sel = state.get('selected')
+                if sel in ids and sel != driving_id:  # user switched controllers
+                    break
             data = device.read(64, timeout_ms=200)
             if not data:
                 continue
@@ -81,14 +115,31 @@ def read_session(device):
         control.clear_device()
 
 
+def _rescan():
+    """Re-enumerate controllers and publish the list; returns the controllers."""
+    controllers = find_controllers()
+    _publish_controllers(controllers)
+    return controllers
+
+
 def read_controller():
-    """Continuously find, open, and read the controller; reconnect on drop."""
+    """Continuously enumerate controllers, open the SELECTED one, and read it;
+    reconnect on drop or when the user picks a different controller."""
     while True:
-        devnode, _name, _hid_name = find_vendor_hidraw()
-        if not devnode:
+        controllers = _rescan()
+        if not controllers:
             state['connected'] = False
             state['mode_ok'] = False
             state['controller'] = None
+            state['selected'] = None
+            time.sleep(1.0)
+            continue
+
+        sel = _pick_selected(controllers)
+        state['selected'] = sel['id']
+        devnode = pick_live_node(sel['nodes'])
+        if not devnode:
+            state['connected'] = False
             time.sleep(1.0)
             continue
         try:
@@ -100,16 +151,16 @@ def read_controller():
             time.sleep(1.0)
             continue
 
-        state['connected'] = True
-        state['firmware'] = read_firmware_version()   # from USB bcdDevice (no I/O)
-        prof = profiles.detect(connected_product_ids())   # Cyclone vs G7
-        profiles.set_active(prof)                          # rest of app follows this
+        prof = profiles.by_product_id(sel['pid'])
+        profiles.set_active(prof)                      # rest of app follows this
         state['controller'] = prof.short if prof else None
-        read_session(device)   # blocks until disconnect/error
+        state['connected'] = True
+        state['firmware'] = read_firmware_version(sel['pid'])   # USB bcdDevice
+        read_session(device, sel['id'])   # blocks until drop / switch
         state['connected'] = False
         state['mode_ok'] = False
         try:
             device.close()
         except Exception:
             pass
-        time.sleep(0.5)   # brief pause before trying to reconnect
+        time.sleep(0.3)   # brief pause before reconnecting
