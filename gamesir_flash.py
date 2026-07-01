@@ -44,7 +44,7 @@ import time
 import hid
 
 from gs_common import (find_vendor_hidraw, read_firmware_version, pad,
-                       device_serial)
+                       device_bcd)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FW_DIR = os.path.join(HERE, 'firmware')
@@ -118,22 +118,29 @@ def _send_enter_loader_hid():
         sys.stderr.write(f"(enter-loader write: {e})\n")
 
 
+# Firmware major version that identifies the 2.4GHz dongle relaying (vs a wired
+# controller, which reports major 3.x). The dongle runs its own 1.x firmware.
+DONGLE_FW_MAJORS = (1, 2)
+
+
 def _guard_wired():
     """Refuse to enter the loader if the connected GameSir device is the 2.4GHz
     WIRELESS DONGLE rather than a directly-wired controller.
 
     Over wireless the dongle is the USB-facing chip, so the enter-loader command
-    and the raw flash writes hit the DONGLE and brick it. The dongle reports a
-    USB serial; a wired controller does not — that's the discriminator."""
+    and the raw flash writes hit the DONGLE and brick it. The dongle relays at its
+    OWN firmware (major 1.x, e.g. 1.16) while a wired controller reports controller
+    firmware (major 3.x) — that's the reliable discriminator (the USB serial reads
+    identically on both, so it can't be used)."""
     node, _name, _ = find_vendor_hidraw()
     if not node:
         return                      # nothing connected; loader-wait handles it
-    serial = device_serial(node)
-    if serial:
+    bcd = device_bcd(node)
+    if bcd is not None and (bcd >> 8) in DONGLE_FW_MAJORS:
         raise FlashError(
             "Refusing to flash: the controller appears to be connected over the "
-            f"2.4GHz WIRELESS DONGLE (USB serial {serial}). Flashing over the "
-            "dongle writes to the dongle's own chip and WILL BRICK IT.\n"
+            f"2.4GHz WIRELESS DONGLE (it reports dongle firmware {bcd >> 8}.{bcd & 0xff:02x}). "
+            "Flashing over the dongle writes to the dongle's own chip and WILL BRICK IT.\n"
             "  → Connect the controller DIRECTLY with a USB cable, in Xbox mode "
             "(hold the green button ~2s), then retry.")
 

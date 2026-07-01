@@ -162,7 +162,9 @@ class ControllerProfile:
 CYCLONE = ControllerProfile(
     name='GameSir Cyclone 2',
     short='Cyclone 2',
-    usb_products=(0x0575, 0x100b),
+    # 0575 = extras/macro mode, 100b = pure XInput; 1053 = XInput identity of the
+    # firmware images in the flash library (a flashed unit enumerates as this).
+    usb_products=(0x0575, 0x100b, 0x1053),
     write_style='cyclone',
     input_style='cyclone_0x12',
     profile_banks=(1, 2, 3, 4),
