@@ -36,6 +36,13 @@ the README's protocol notes or the commit message.
       minimum size, which the existing `ScrollView` handles. *(Verified by rendering
       each page offscreen at 620 & 720.)* The Settings overlay (with Firmware) fits
       fine as-is.
+- [x] **Top bar crowded / settings gear pushed off-screen.** *Fixed:* the top bar
+      is now responsive — profile pills collapse to `P1`..`P4` below 1200 px (full
+      `Profile N` labels when wider), the wrong-mode warning is a compact ⚠ chip
+      with the guidance on hover (it can no longer grow the bar), and the
+      `Sticks → cursor` label + firmware text hide below 1000 px. The settings gear
+      stays reachable at 840 / 1040 / 1240 (verified by offscreen render). This also
+      made room for the new controller picker.
 
 ## ✨ Enhancements / proposed changes
 
@@ -73,8 +80,10 @@ the README's protocol notes or the commit message.
 ## 🚀 Long-term / big bets
 
 These are the project's north-star goals — larger efforts, several of which chain
-off firmware reverse-engineering. Hardware on hand: **a 2nd Cyclone 2** (bought as
-a sacrificial unit for firmware experiments) and **a GameSir G7**.
+off firmware reverse-engineering. Hardware on hand: **two Cyclone 2s** (one bought
+as a sacrificial unit for firmware experiments) and a **GameSir G7 Pro**
+(`3537:1022`). *(Note: the G7 config captures were taken on a plain **G7**
+`3537:10ba`, a different model from the G7 Pro — see the G7 items below.)*
 
 - [x] **Firmware updates from Linux.** *Done.* The MCU is a JieLi **BR23**
       (AC635N/AC695N); the vendor command `0f 17 55 88` reboots it into its BR23
@@ -89,11 +98,29 @@ a sacrificial unit for firmware experiments) and **a GameSir G7**.
       next power-cycle (mask-ROM), so you can always re-flash. No `sudo` once the
       `0x4c4a` udev rule is installed. *(The `.ufw` packages are encrypted; we flash
       raw images dumped from controllers you own — none are redistributed.)*
-- [ ] **Expand support to the GameSir G7.** First confirm how much of the existing
-      Cyclone 2 stack (vendor channel, register map, LED/config banks) already
-      applies to the G7 vs. what differs. Likely needs its own register map +
-      capture set; aim to factor the protocol core so a controller is a profile of
-      register addresses rather than hard-coded constants.
+- [~] **Expand support to the GameSir G7 (family).** *Substantially done.*
+      - [x] **Protocol factored into per-controller profiles** — `controller_profile.py`
+        (`ControllerProfile` + `CYCLONE`/`G7`/`G7_PRO`), detection by USB product id,
+        and the bridge/backup/writer now address the *active* profile instead of
+        hard-coded Cyclone constants (Cyclone behaviour verified byte-identical).
+      - [x] **Multi-controller picker** (single-active, switchable) + **press-to-select**
+        (press a button on a pad to switch to it), deduping identical units by USB
+        port since serials are empty. Verified live with 2 Cyclones + a G7 Pro.
+      - [x] **G7 config protocol RE'd** (from plain-G7 `0x10ba` USB captures): same
+        register protocol wrapped in a `0f 00 <seq> 3c` envelope; full trigger/stick/
+        remap/vibration/report-rate map + button target codes (see
+        `gamesir_g7_parse.py` and the assistant memory). Write path implemented.
+      - [x] **G7-family live input over evdev** — the G7 Pro is a standard HID gamepad
+        (not GIP), so input is read from evdev and mapped into state (handles the
+        modern axis layout: RS on Z/RZ, triggers on GAS/BRAKE).
+      - [ ] **G7 Pro config protocol** — the Pro (`0x1022`) has a vendor `0xfff0`
+        collection (`hidraw14`) whose protocol is NOT captured; needs G7 Pro USB
+        captures before its editor fields can work (its profile currently exposes no
+        config). May differ from the plain G7's map.
+      - [ ] **G7 battery** — evdev doesn't expose it; read `/sys/class/power_supply`
+        for the controller instead (currently shows 0 for G7-family).
+      - [ ] **G7 stick Y-orientation** — sanity-check the vertical axis direction in
+        the live app (evdev "up" = axis min; may need a per-profile invert).
 - [ ] **Deep firmware-package RE (once updates work).** With a known-good flashing
       path, dissect a firmware image to inventory undocumented features /
       capabilities we could expose (extra LED modes, motion, button behaviours,
@@ -115,13 +142,14 @@ a sacrificial unit for firmware experiments) and **a GameSir G7**.
       quiet/loud dynamics to learn the streaming command, then a PipeWire monitor →
       amplitude → stream pipeline. (Distinct from, and a prerequisite signal for,
       the long-term "audio via the headset jack" bet.)
-- [ ] **Reprogram View / Menu / L4 / R4 — find the vendor-protocol *target* codes.**
-      Source side is now fully understood (see
-      [CONTROLLER_MAP.md](CONTROLLER_MAP.md)): L4/R4/M are *firmware-controlled*, not
-      gamepad inputs, and the pad has two USB identities (`3537:0575` where L4/R4
-      send keyboard macros, `3537:100b` pure XInput where they're blank). So
-      remapping them must go over the vendor channel — capture the official app
-      assigning each to learn the target-code format.
+- [~] **Reprogram View / Menu / L4 / R4 — vendor-protocol *target* codes.**
+      *Target codes now known* from the G7 captures (the G7 reuses the same register
+      protocol + a 7-byte-per-button remap-slot table): `LB=05, RB=06, LS=07, RS=08,
+      A=09, B=0a, X=0b, Y=0c, LT=13, RT=14`, written as `[01 <target>]` to a source
+      slot (`[00 00]` clears). Confirmed A/X live on the G7 and match the Cyclone's
+      previously-inferred codes. Remaining: capture the **Cyclone** applying an L4/R4
+      and View/Menu remap to confirm those *source*-slot addresses on the Cyclone
+      specifically (the G7 slot bases may differ) and that it accepts the writes.
 - [ ] **Profile-switch → bank sync:** how a `SET-PROFILE` syncs bank `0x01` to a
       store. Unlocks restoring profiles 2–4 (above).
 - [ ] **PS4 / Switch-mode input parsing** — the vendor channel is Xbox-only;
@@ -129,6 +157,11 @@ a sacrificial unit for firmware experiments) and **a GameSir G7**.
 
 ## ✅ Done (recent highlights)
 
+- [x] **Multi-controller support** — profile abstraction (`controller_profile.py`),
+      live picker + press-to-select, and the whole config/backup/write stack now
+      follows the *active* controller. G7 config protocol reverse-engineered; G7 Pro
+      recognised with live input over evdev. Responsive top bar so the gear always
+      fits. *(This session; branch `multi-controller-picker`.)*
 - [x] **Controller input map captured & documented**
       ([CONTROLLER_MAP.md](CONTROLLER_MAP.md)) with a new re-enumeration-resilient
       evdev reader (`gamesir_input_map.py`): standard controls are XInput on
