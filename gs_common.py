@@ -135,6 +135,22 @@ def find_controllers():
     return list(by_dev.values())
 
 
+def evdev_port(event_node):
+    """USB port id (busnum-devpath) for a /dev/input/eventN node, matching the
+    ids from find_controllers(), or None. Lets a button press seen on evdev be
+    attributed to the exact physical controller it came from."""
+    sysfs = os.path.join('/sys/class/input', os.path.basename(event_node))
+    devdir = _usb_device_dir(sysfs)
+    if devdir is None:
+        return None
+    try:
+        bus = open(os.path.join(devdir, 'busnum')).read().strip()
+        devpath = open(os.path.join(devdir, 'devpath')).read().strip()
+    except OSError:
+        return None
+    return f'{bus}-{devpath}'
+
+
 def connected_product_ids():
     """USB product ids (ints) of all connected GameSir vendor interfaces.
 

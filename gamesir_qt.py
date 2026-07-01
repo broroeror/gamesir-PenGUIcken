@@ -16,7 +16,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 
-from gamesir_reader import read_controller
+from gamesir_reader import read_controller, press_select_loop
 from gamesir_bridge import GamesirBridge
 import gamesir_kwin as kwin
 import gamesir_mousegrab as mousegrab
@@ -31,6 +31,8 @@ ASSETS_DIR = os.path.join(HERE, 'assets')
 def main():
     # Background side: identical to the Dear PyGui app.
     threading.Thread(target=read_controller, daemon=True).start()
+    # Press-to-select: switch the driven controller by pressing a button on it.
+    threading.Thread(target=press_select_loop, daemon=True).start()
     if not kwin.available():
         mousegrab.start()   # EVIOCGRAB fallback (non-KDE); KDE uses the KWin plugin
 

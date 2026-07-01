@@ -8,11 +8,15 @@ Survives unplugging the cable (it keeps working over the 2.4GHz dongle), mode
 switches, and hidraw node renumbering on re-enumeration.
 """
 
+import os
+import select
+import struct
 import threading
 import time
 import hid
 
-from gs_common import find_controllers, pick_live_node, read_firmware_version
+from gs_common import (find_controllers, pick_live_node, read_firmware_version,
+                       evdev_port)
 from gamesir_enhanced import parse_enhanced
 from gs_state import state
 import gamesir_control as control
@@ -164,3 +168,86 @@ def read_controller():
         except Exception:
             pass
         time.sleep(0.3)   # brief pause before reconnecting
+
+
+# --- press-to-select --------------------------------------------------------
+# struct input_event { struct timeval time; __u16 type, code; __s32 value; }
+# 64-bit timeval = 2*long -> 24 bytes total.
+_EV_FMT = 'llHHi'
+_EV_SIZE = struct.calcsize(_EV_FMT)
+_EV_KEY = 1
+
+
+def _maybe_select(port):
+    """Switch to `port` if it's a connected controller other than the current
+    one. No-op with a single controller (nothing to switch between)."""
+    if not port:
+        return
+    ids = [c['id'] for c in state['controllers']]
+    if len(ids) >= 2 and port in ids and port != state.get('selected'):
+        state['selected'] = port
+
+
+def press_select_loop():
+    """Watch every connected GameSir pad's evdev button events; a button press on
+    a controller that ISN'T selected switches to it ('press to select').
+
+    Uses evdev (the standard gamepad interface) rather than the vendor channel:
+    the Cyclone's 0x12 report only streams while we heartbeat it, so a
+    non-selected controller is silent there — but its buttons always reach evdev.
+    Works uniformly for Cyclone and G7."""
+    from gamesir_input_diag import parse_devices, VENDOR_VID
+    fds = {}                    # fd -> (path, port)
+    open_paths = set()
+
+    def sync():
+        for d in parse_devices():
+            if d['vendor'] != VENDOR_VID:
+                continue
+            for ev in d['events']:
+                if ev in open_paths:
+                    continue
+                try:
+                    fd = os.open(ev, os.O_RDONLY | os.O_NONBLOCK)
+                except OSError:
+                    continue
+                open_paths.add(ev)
+                fds[fd] = (ev, evdev_port(ev))
+
+    def drop(fd):
+        path, _ = fds.pop(fd, (None, None))
+        open_paths.discard(path)
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+    last_scan = 0.0
+    while True:
+        now = time.time()
+        if now - last_scan > 1.5:       # pick up (re)enumerated pads
+            last_scan = now
+            sync()
+        if not fds:
+            time.sleep(0.5)
+            continue
+        try:
+            r, _, _ = select.select(list(fds), [], [], 0.3)
+        except OSError:
+            for fd in list(fds):
+                drop(fd)
+            continue
+        for fd in r:
+            try:
+                data = os.read(fd, _EV_SIZE * 32)
+            except BlockingIOError:
+                continue
+            except OSError:
+                drop(fd)
+                continue
+            port = fds.get(fd, (None, None))[1]
+            for i in range(0, len(data) - _EV_SIZE + 1, _EV_SIZE):
+                _, _, etype, code, value = struct.unpack(_EV_FMT, data[i:i + _EV_SIZE])
+                if etype == _EV_KEY and value == 1:   # a button went down
+                    _maybe_select(port)
+                    break
