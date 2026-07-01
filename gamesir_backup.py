@@ -28,11 +28,11 @@ from datetime import datetime
 
 import gamesir_control as control
 import gamesir_config as cfg
+import controller_profile as ctrl
 import gamesir_led as led
 
 SCHEMA = 2
-DEVICE = 'GameSir Cyclone 2'
-PROFILES = (1, 2, 3, 4)
+DEVICE_FAMILY = 'GameSir'      # for messages; the snapshot stores the exact model
 LED_SLOTS = (0, 1, 2, 3, 4)
 POWER_ADDRS = (led.AUDIO_REACTIVE, led.PICKUP_WAKE, led.SLEEP_TIMEOUT)
 POWER_NAMES = {
@@ -49,14 +49,15 @@ READ_TIMEOUT = 60.0
 
 def _profile_fields():
     """(addr, length) snapshotted per profile bank: every editor field plus the
-    button-remap records."""
-    return list(cfg.READ_FIELDS) + [(addr, 2) for _, addr in cfg.REMAP_SLOTS]
+    button-remap records, for the active controller's register map."""
+    prof = ctrl.active()
+    return list(prof.read_fields()) + [(addr, 2) for _, addr in prof.REMAP_SLOTS]
 
 
 def _all_requests():
     """Every (bank, addr, length) read needed for a full snapshot."""
     reqs = []
-    for prof in PROFILES:
+    for prof in ctrl.active().profile_banks:
         for addr, ln in _profile_fields():
             reqs.append((prof, addr, ln))
     reqs.append((led.LED_BANK, 0x0000, 1))                 # active-slot selector
@@ -115,7 +116,7 @@ def _entry(addr, byts):
 def _build(vals):
     """Assemble the JSON-serialisable snapshot dict from {(bank, addr): bytes}."""
     profiles = {}
-    for prof in PROFILES:
+    for prof in ctrl.active().profile_banks:
         profiles[str(prof)] = {cfg.field_name(addr): _entry(addr, vals[(prof, addr)])
                                for addr, _ln in _profile_fields()}
 
@@ -131,7 +132,7 @@ def _build(vals):
     }
     return {
         'schema': SCHEMA,
-        'device': DEVICE,
+        'device': ctrl.active().name,
         'exported': datetime.now().isoformat(timespec='seconds'),
         'profiles': profiles,
         'lighting': lighting,
@@ -145,7 +146,7 @@ def load(path):
     with open(path) as fh:
         data = json.load(fh)
     if not isinstance(data, dict) or data.get('schema') not in (1, SCHEMA):
-        raise ValueError(f'Not a {DEVICE} backup (schema 1 or {SCHEMA})')
+        raise ValueError(f'Not a {DEVICE_FAMILY} backup (schema 1 or {SCHEMA})')
     if 'profiles' not in data or 'lighting' not in data:
         raise ValueError('Backup is missing profiles/lighting')
     return data

@@ -71,6 +71,91 @@ def find_vendor_nodes():
     return nodes
 
 
+def _usb_device_dir(hidraw_sysfs):
+    """Walk up from a hidraw's sysfs path to the owning USB DEVICE directory
+    (the one holding idVendor/busnum), which is shared by all interfaces of the
+    same physical controller. Returns the dir path, or None."""
+    d = os.path.realpath(hidraw_sysfs)
+    for _ in range(12):                       # bounded walk up the device tree
+        if os.path.exists(os.path.join(d, 'idVendor')) and \
+           os.path.exists(os.path.join(d, 'busnum')):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return None
+
+
+def find_controllers():
+    """Enumerate DISTINCT physical GameSir controllers (not per-interface).
+
+    The Cyclone exposes two vendor interfaces (empty + live) on one USB device,
+    so we group hidraw nodes by their owning USB device (topology) and return one
+    entry per controller: {id, pid, nodes, port}. `id`/`port` is the USB bus+path
+    (stable per physical port; serials are empty so this is our unique key), and
+    `nodes` are that controller's /dev/hidraw* paths."""
+    by_dev = {}
+    for path in sorted(glob.glob('/sys/class/hidraw/hidraw*'),
+                       key=lambda p: int(os.path.basename(p)[6:])):
+        name = os.path.basename(path)
+        try:
+            with open(os.path.join(path, 'device', 'uevent')) as f:
+                uevent = f.read()
+        except OSError:
+            continue
+        hid_id = next((ln.split('=', 1)[1] for ln in uevent.splitlines()
+                       if ln.startswith('HID_ID=')), '')
+        parts = hid_id.split(':')
+        if len(parts) != 3:
+            continue
+        try:
+            vid, pid = int(parts[1], 16), int(parts[2], 16)
+        except ValueError:
+            continue
+        if vid != VENDOR_VID:
+            continue
+        devdir = _usb_device_dir(path)
+        if devdir is None:
+            continue
+        try:
+            bus = open(os.path.join(devdir, 'busnum')).read().strip()
+            devpath = open(os.path.join(devdir, 'devpath')).read().strip()
+        except OSError:
+            bus, devpath = '?', os.path.basename(devdir)
+        port = f'{bus}-{devpath}'
+        entry = by_dev.setdefault(port, {'id': port, 'port': port,
+                                         'pid': pid, 'nodes': []})
+        entry['nodes'].append(f'/dev/{name}')
+    return list(by_dev.values())
+
+
+def connected_product_ids():
+    """USB product ids (ints) of all connected GameSir vendor interfaces.
+
+    Parsed from each hidraw node's HID_ID (`bus:VID:PID`, hex). Lets the app
+    tell a Cyclone (0575/100b) from a G7 (10ba) to pick the right profile.
+    Matched by vendor id, so it survives mode/node renumbering like the rest."""
+    pids = []
+    for path in glob.glob('/sys/class/hidraw/hidraw*'):
+        try:
+            with open(os.path.join(path, 'device', 'uevent')) as f:
+                uevent = f.read()
+        except OSError:
+            continue
+        hid_id = next((ln.split('=', 1)[1] for ln in uevent.splitlines()
+                       if ln.startswith('HID_ID=')), '')
+        parts = hid_id.split(':')
+        if len(parts) == 3:
+            try:
+                vid, pid = int(parts[1], 16), int(parts[2], 16)
+            except ValueError:
+                continue
+            if vid == VENDOR_VID and pid not in pids:
+                pids.append(pid)
+    return pids
+
+
 def _streams_live_data(devnode, secs=1.0):
     """Open devnode, send heartbeats, and report whether it yields a POPULATED
     0x12 report (sticks rest at 128 / battery non-zero, so an empty all-zero

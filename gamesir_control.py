@@ -16,6 +16,7 @@ import threading
 import time
 
 from gs_common import pad
+import controller_profile as profiles
 
 _write_lock = threading.Lock()
 _device = None
@@ -62,17 +63,31 @@ def rumble_test():
     threading.Thread(target=run, daemon=True).start()
 
 
+_g7_seq = 0            # rolling sequence for the G7's enveloped writes
+
+
 def write_reg(bank, addr, data):
-    """Thread-safe register write, chunked to fit the 64-byte report."""
+    """Thread-safe register write, chunked to fit the 64-byte report. Frames the
+    command for whichever controller is active: the Cyclone sends the bare
+    `0f 03 …` register write; the G7 wraps the SAME inner command in its
+    sequenced envelope `0f 00 <seq> 3c | 03 …` (write_style on the profile)."""
+    global _g7_seq
+    g7 = profiles.active().write_style == 'g7'
+    chunk_len = 55 if g7 else 48    # inner block caps at 60B (5B header + 55 data)
     i = 0
     while i < len(data):
-        chunk = data[i:i + 48]
+        chunk = data[i:i + chunk_len]
         a = addr + i
-        if not send_cmd(0x0F, 0x03, bank, (a >> 8) & 0xFF, a & 0xFF,
-                        len(chunk), *chunk):
+        inner = (0x03, bank, (a >> 8) & 0xFF, a & 0xFF, len(chunk), *chunk)
+        if g7:
+            _g7_seq = (_g7_seq + 1) & 0xFF
+            ok = send_cmd(0x0F, 0x00, _g7_seq, 0x3C, *inner)
+        else:
+            ok = send_cmd(0x0F, *inner)
+        if not ok:
             return False
         time.sleep(0.02)
-        i += 48
+        i += chunk_len
     return True
 
 

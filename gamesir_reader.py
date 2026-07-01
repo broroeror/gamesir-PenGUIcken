@@ -12,10 +12,12 @@ import threading
 import time
 import hid
 
-from gs_common import find_vendor_hidraw, read_firmware_version
+from gs_common import (find_vendor_hidraw, read_firmware_version,
+                       connected_product_ids)
 from gamesir_enhanced import parse_enhanced
 from gs_state import state
 import gamesir_control as control
+import controller_profile as profiles
 
 
 def maintenance_loop(alive):
@@ -86,6 +88,7 @@ def read_controller():
         if not devnode:
             state['connected'] = False
             state['mode_ok'] = False
+            state['controller'] = None
             time.sleep(1.0)
             continue
         try:
@@ -99,6 +102,9 @@ def read_controller():
 
         state['connected'] = True
         state['firmware'] = read_firmware_version()   # from USB bcdDevice (no I/O)
+        prof = profiles.detect(connected_product_ids())   # Cyclone vs G7
+        profiles.set_active(prof)                          # rest of app follows this
+        state['controller'] = prof.short if prof else None
         read_session(device)   # blocks until disconnect/error
         state['connected'] = False
         state['mode_ok'] = False

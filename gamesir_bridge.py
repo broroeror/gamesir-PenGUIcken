@@ -22,6 +22,7 @@ from gs_state import state, EXTRA_BTNS
 import gamesir_control as control
 import gamesir_led as led
 import gamesir_config as cfg
+import controller_profile as profiles
 import gamesir_kf_cache as kf_cache
 import gamesir_kwin as kwin
 import gamesir_factory as factory
@@ -46,41 +47,33 @@ def _led_retry(fn, *args):
     threading.Thread(target=run, daemon=True).start()
 
 
-# Friendly key -> (register address, review-label) for the scalar config fields
-# the Sticks/Triggers/Vibration pages edit.
-SCALARS = {
-    'st_dz_min':  (cfg.ST_DZ_MIN,  'Left stick deadzone min'),
-    'st_dz_max':  (cfg.ST_DZ_MAX,  'Left stick deadzone max'),
-    'st_adz_min': (cfg.ST_ADZ_MIN, 'Left stick anti-deadzone min'),
-    'st_adz_max': (cfg.ST_ADZ_MAX, 'Left stick anti-deadzone max'),
-    'rs_dz_min':  (cfg.RS_DZ_MIN,  'Right stick deadzone min'),
-    'rs_dz_max':  (cfg.RS_DZ_MAX,  'Right stick deadzone max'),
-    'rs_adz_min': (cfg.RS_ADZ_MIN, 'Right stick anti-deadzone min'),
-    'rs_adz_max': (cfg.RS_ADZ_MAX, 'Right stick anti-deadzone max'),
-    'lt_dz_min':  (cfg.LT_DZ_MIN,  'LT deadzone min'),
-    'lt_dz_max':  (cfg.LT_DZ_MAX,  'LT deadzone max'),
-    'lt_adz_min': (cfg.LT_ADZ_MIN, 'LT anti-deadzone min'),
-    'lt_adz_max': (cfg.LT_ADZ_MAX, 'LT anti-deadzone max'),
-    'rt_dz_min':  (cfg.RT_DZ_MIN,  'RT deadzone min'),
-    'rt_dz_max':  (cfg.RT_DZ_MAX,  'RT deadzone max'),
-    'rt_adz_min': (cfg.RT_ADZ_MIN, 'RT anti-deadzone min'),
-    'rt_adz_max': (cfg.RT_ADZ_MAX, 'RT anti-deadzone max'),
-    'vib_l':      (cfg.VIB_L,      'Vibration L'),
-    'vib_r':      (cfg.VIB_R,      'Vibration R'),
+# Friendly key -> (ControllerProfile address-attribute, review-label) for the
+# scalar config fields the Sticks/Triggers/Vibration pages edit. Labels are the
+# same across models; the actual register ADDRESS is resolved per active profile
+# in GamesirBridge._apply_profile (so a G7 uses G7 addresses, Cyclone uses its).
+_SCALAR_FIELDS = {
+    'st_dz_min':  ('ST_DZ_MIN',  'Left stick deadzone min'),
+    'st_dz_max':  ('ST_DZ_MAX',  'Left stick deadzone max'),
+    'st_adz_min': ('ST_ADZ_MIN', 'Left stick anti-deadzone min'),
+    'st_adz_max': ('ST_ADZ_MAX', 'Left stick anti-deadzone max'),
+    'rs_dz_min':  ('RS_DZ_MIN',  'Right stick deadzone min'),
+    'rs_dz_max':  ('RS_DZ_MAX',  'Right stick deadzone max'),
+    'rs_adz_min': ('RS_ADZ_MIN', 'Right stick anti-deadzone min'),
+    'rs_adz_max': ('RS_ADZ_MAX', 'Right stick anti-deadzone max'),
+    'lt_dz_min':  ('LT_DZ_MIN',  'LT deadzone min'),
+    'lt_dz_max':  ('LT_DZ_MAX',  'LT deadzone max'),
+    'lt_adz_min': ('LT_ADZ_MIN', 'LT anti-deadzone min'),
+    'lt_adz_max': ('LT_ADZ_MAX', 'LT anti-deadzone max'),
+    'rt_dz_min':  ('RT_DZ_MIN',  'RT deadzone min'),
+    'rt_dz_max':  ('RT_DZ_MAX',  'RT deadzone max'),
+    'rt_adz_min': ('RT_ADZ_MIN', 'RT anti-deadzone min'),
+    'rt_adz_max': ('RT_ADZ_MAX', 'RT anti-deadzone max'),
+    'vib_l':      ('VIB_L',      'Vibration L'),
+    'vib_r':      ('VIB_R',      'Vibration R'),
 }
-CURVE_ADDR = {'st': cfg.ST_CURVE, 'rs': cfg.RS_CURVE,
-              'lt': cfg.LT_CURVE, 'rt': cfg.RT_CURVE}
-TRAJ_ADDR = {'st': cfg.ST_TRAJ, 'rs': cfg.RS_TRAJ}
-HAIR_ADDR = {'lt': cfg.LT_HAIR, 'rt': cfg.RT_HAIR}
-
-# Reverse lookups so a saved write can be folded back into the cached config
-# snapshot (keeps the editor consistent across sub-tab switches after a Save).
-_ADDR_TO_SCALAR = {addr: key for key, (addr, _l) in SCALARS.items()}
-_ADDR_TO_CURVE = {addr: side for side, addr in CURVE_ADDR.items()}
-_ADDR_TO_TRAJ = {addr: side for side, addr in TRAJ_ADDR.items()}
-_ADDR_TO_HAIR = {addr: side for side, addr in HAIR_ADDR.items()}
-_ADDR_TO_REMAP = {addr: name for name, addr in cfg.REMAP_SLOTS}
-_REMAP_ADDR = {name: addr for name, addr in cfg.REMAP_SLOTS}
+_CURVE_FIELDS = {'st': 'ST_CURVE', 'rs': 'RS_CURVE', 'lt': 'LT_CURVE', 'rt': 'RT_CURVE'}
+_TRAJ_FIELDS = {'st': 'ST_TRAJ', 'rs': 'RS_TRAJ'}
+_HAIR_FIELDS = {'lt': 'LT_HAIR', 'rt': 'RT_HAIR'}
 
 
 def _hex(rgb):
@@ -101,6 +94,7 @@ class GamesirBridge(QObject):
     mouseModeChanged = Signal()
     configLoaded = Signal()         # fired when a profile's config is read back
     pendingChanged = Signal()       # number of queued (unsaved) config edits
+    controllerChanged = Signal()    # detected controller model (Cyclone/G7) changed
     backupBusyChanged = Signal()
     backupProgress = Signal(int, int)   # done, total
     backupStatus = Signal(bool, str)    # ok, message
@@ -140,6 +134,11 @@ class GamesirBridge(QObject):
         self._backup_busy = False
         self._fw_busy = False
 
+        # Which controller's register map we address. Follows the connected
+        # controller (Cyclone/G7); the address maps below are rebuilt on change.
+        self._controller = None
+        self._apply_profile(profiles.active())
+
         self._input_timer = QTimer(self)
         self._input_timer.setInterval(16)        # ~60 Hz
         self._input_timer.timeout.connect(self._poll_input)
@@ -156,6 +155,24 @@ class GamesirBridge(QObject):
         self._light_timer.timeout.connect(self._poll_config)
         self._light_timer.start()
 
+    def _apply_profile(self, prof):
+        """Bind the register-address maps to `prof` (the active controller). Only
+        fields the model actually has are included (None addresses are dropped),
+        so a controller lacking a field simply can't edit it."""
+        self._prof = prof
+        g = lambda a: getattr(prof, a)
+        self._scalars = {k: (g(a), lbl) for k, (a, lbl) in _SCALAR_FIELDS.items()
+                         if g(a) is not None}
+        self._curve_addr = {k: g(a) for k, a in _CURVE_FIELDS.items() if g(a) is not None}
+        self._traj_addr = {k: g(a) for k, a in _TRAJ_FIELDS.items() if g(a) is not None}
+        self._hair_addr = {k: g(a) for k, a in _HAIR_FIELDS.items() if g(a) is not None}
+        self._addr_to_scalar = {addr: key for key, (addr, _l) in self._scalars.items()}
+        self._addr_to_curve = {addr: side for side, addr in self._curve_addr.items()}
+        self._addr_to_traj = {addr: side for side, addr in self._traj_addr.items()}
+        self._addr_to_hair = {addr: side for side, addr in self._hair_addr.items()}
+        self._addr_to_remap = {addr: name for name, addr in prof.REMAP_SLOTS}
+        self._remap_addr = {name: addr for name, addr in prof.REMAP_SLOTS}
+
     # ------------------------------------------------------------------ polls
     def _poll_input(self):
         sig = (state['lx'], state['ly'], state['rx'], state['ry'],
@@ -169,9 +186,18 @@ class GamesirBridge(QObject):
             self.inputChanged.emit()
 
     def _poll_status(self):
+        if state['controller'] != self._controller:
+            self._controller = state['controller']
+            self._apply_profile(profiles.active())
+            self._loaded_profile = None     # force a re-read for the new model
+            self._config_loading = None
+            if self._pending:
+                self._pending = {}
+                self.pendingChanged.emit()
+            self.controllerChanged.emit()
         sig = (state['connected'], state['mode_ok'], state['battery'],
                state['charging'], state['profile'], state['led_slot'],
-               state['firmware'])
+               state['firmware'], state['controller'])
         if sig != self._status_sig:
             self._status_sig = sig
             self.statusChanged.emit()
@@ -225,47 +251,49 @@ class GamesirBridge(QObject):
         """Read the selected profile's config once whenever the profile changes.
         Switching profiles discards any unsaved edits (mirrors the DPG app)."""
         prof = state['profile']
-        bank = cfg.profile_bank(prof)
+        bank = self._prof.profile_bank(prof)
         if (bank is not None and prof != self._loaded_profile
                 and self._config_loading is None):
             self._loaded_profile = prof
             if self._pending:
                 self._pending = {}
                 self.pendingChanged.emit()
-            reqs = [(bank, addr, ln) for addr, ln in cfg.READ_FIELDS]
-            reqs += [(bank, addr, 2) for _n, addr in cfg.REMAP_SLOTS]
+            reqs = [(bank, addr, ln) for addr, ln in self._prof.read_fields()]
+            reqs += [(bank, addr, 2) for _n, addr in self._prof.REMAP_SLOTS]
             control.request_regs(reqs)
             self._config_loading = bank
 
         bank = self._config_loading
         if bank is None:
             return
-        vals = {addr: control.reg_result(bank, addr) for addr, _ln in cfg.READ_FIELDS}
-        vals.update({addr: control.reg_result(bank, addr) for _n, addr in cfg.REMAP_SLOTS})
+        vals = {addr: control.reg_result(bank, addr)
+                for addr, _ln in self._prof.read_fields()}
+        vals.update({addr: control.reg_result(bank, addr)
+                     for _n, addr in self._prof.REMAP_SLOTS})
         if any(v is None for v in vals.values()):
             return
         self._config_loading = None
         self._config = self._build_config(vals)
         self.configLoaded.emit()
 
-    @staticmethod
-    def _build_config(vals):
+    def _build_config(self, vals):
+        p = self._prof
         g = lambda a: vals[a][0]
         def curve(addr):
             blk = vals[addr]
             return {'type': cfg.curve_index(blk[0]),
                     'points': [list(p) for p in cfg.curve_points(blk)]}
         out = {
-            'st_traj': cfg.enum_index(g(cfg.ST_TRAJ), cfg.TRAJ), 'st_curve': curve(cfg.ST_CURVE),
-            'rs_traj': cfg.enum_index(g(cfg.RS_TRAJ), cfg.TRAJ), 'rs_curve': curve(cfg.RS_CURVE),
-            'lt_hair': cfg.enum_index(g(cfg.LT_HAIR), cfg.HAIR_MODES), 'lt_curve': curve(cfg.LT_CURVE),
-            'rt_hair': cfg.enum_index(g(cfg.RT_HAIR), cfg.HAIR_MODES), 'rt_curve': curve(cfg.RT_CURVE),
-            'poll': min(g(cfg.POLL_RATE), 2),
+            'st_traj': cfg.enum_index(g(p.ST_TRAJ), cfg.TRAJ), 'st_curve': curve(p.ST_CURVE),
+            'rs_traj': cfg.enum_index(g(p.RS_TRAJ), cfg.TRAJ), 'rs_curve': curve(p.RS_CURVE),
+            'lt_hair': cfg.enum_index(g(p.LT_HAIR), cfg.HAIR_MODES), 'lt_curve': curve(p.LT_CURVE),
+            'rt_hair': cfg.enum_index(g(p.RT_HAIR), cfg.HAIR_MODES), 'rt_curve': curve(p.RT_CURVE),
+            'poll': min(g(p.POLL_RATE), 2),
         }
-        for key, (addr, _lbl) in SCALARS.items():
+        for key, (addr, _lbl) in self._scalars.items():
             out[key] = g(addr)
         remap = {}
-        for name, addr in cfg.REMAP_SLOTS:
+        for name, addr in p.REMAP_SLOTS:
             rec = vals[addr]
             remap[name] = cfg.remap_target_name(rec[0], rec[1] if len(rec) > 1 else 0)
         out['remap'] = remap
@@ -339,6 +367,11 @@ class GamesirBridge(QObject):
     @Property(str, notify=statusChanged)
     def firmware(self):
         return state['firmware'] or ''
+
+    @Property(str, notify=statusChanged)
+    def controllerName(self):
+        """Detected controller model ('Cyclone 2' / 'G7'), or '' if unknown."""
+        return state['controller'] or ''
 
     # ------------------------------------------------------------- lighting view
     @Property('QVariantList', constant=True)
@@ -593,9 +626,9 @@ class GamesirBridge(QObject):
         seeds its controls from this on configLoaded."""
         return dict(self._config)
 
-    @Property('QVariantList', constant=True)
+    @Property('QVariantList', notify=controllerChanged)
     def pollRates(self):
-        return list(cfg.POLL_RATES)
+        return list(self._prof.POLL_RATES)
 
     @Property('QVariantList', constant=True)
     def curveNames(self):
@@ -621,34 +654,34 @@ class GamesirBridge(QObject):
                 for a in sorted(self._pending)]
 
     def _queue(self, addr, data, label, display):
-        if cfg.profile_bank(state['profile']) is None:
+        if self._prof.profile_bank(state['profile']) is None:
             return
         self._pending[addr] = {'data': list(data), 'label': label, 'display': str(display)}
         self.pendingChanged.emit()
 
     @Slot(str, int)
     def setScalar(self, key, value):
-        addr, label = SCALARS[key]
+        addr, label = self._scalars[key]
         self._queue(addr, [max(0, min(255, int(value)))], label, str(int(value)))
 
     @Slot(str, int)
     def setTraj(self, side, index):
         name, code = cfg.TRAJ[index]
-        self._queue(TRAJ_ADDR[side], [code],
+        self._queue(self._traj_addr[side], [code],
                     ('Left' if side == 'st' else 'Right') + ' stick trajectory', name)
 
     @Slot(str, int)
     def setHair(self, side, index):
         name, data = cfg.HAIR_MODES[index]
-        self._queue(HAIR_ADDR[side], list(data), side.upper() + ' hair-trigger', name)
+        self._queue(self._hair_addr[side], list(data), side.upper() + ' hair-trigger', name)
 
     @Slot(str, int)
     def setPoll(self, index):
-        self._queue(cfg.POLL_RATE, [index], 'Poll rate', cfg.POLL_RATES[index])
+        self._queue(self._prof.POLL_RATE, [index], 'Poll rate', self._prof.POLL_RATES[index])
 
-    @Property('QVariantList', constant=True)
+    @Property('QVariantList', notify=controllerChanged)
     def remapSources(self):
-        return [name for name, _ in cfg.REMAP_SLOTS]
+        return [name for name, _ in self._prof.REMAP_SLOTS]
 
     @Property('QVariantList', constant=True)
     def remapTargets(self):
@@ -656,13 +689,13 @@ class GamesirBridge(QObject):
 
     @Slot(str, str)
     def setRemap(self, source, target):
-        addr = _REMAP_ADDR.get(source)
+        addr = self._remap_addr.get(source)
         if addr is not None:
             self._queue(addr, cfg.remap_write_bytes(target), 'Remap ' + source, target)
 
     @Slot(str, str, 'QVariantList')
     def setCurve(self, key, name, points):
-        addr = CURVE_ADDR[key]
+        addr = self._curve_addr[key]
         if name == 'Custom':
             pts = [(int(p[0]), int(p[1])) for p in points]
             self._queue(addr, cfg.custom_curve_block(pts), key.upper() + ' curve', 'Custom')
@@ -673,26 +706,26 @@ class GamesirBridge(QObject):
         """Mirror a written value back into the cached config snapshot so the
         editor doesn't re-seed a stale value after Save (the 'second edit reverts
         the first' bug: the device was correct, but our cache wasn't)."""
-        if addr in _ADDR_TO_SCALAR:
-            self._config[_ADDR_TO_SCALAR[addr]] = data[0]
-        elif addr in _ADDR_TO_CURVE:
-            self._config[_ADDR_TO_CURVE[addr] + '_curve'] = {
+        if addr in self._addr_to_scalar:
+            self._config[self._addr_to_scalar[addr]] = data[0]
+        elif addr in self._addr_to_curve:
+            self._config[self._addr_to_curve[addr] + '_curve'] = {
                 'type': cfg.curve_index(data[0]),
                 'points': [list(p) for p in cfg.curve_points(data)]}
-        elif addr in _ADDR_TO_TRAJ:
-            self._config[_ADDR_TO_TRAJ[addr] + '_traj'] = cfg.enum_index(data[0], cfg.TRAJ)
-        elif addr in _ADDR_TO_HAIR:
-            self._config[_ADDR_TO_HAIR[addr] + '_hair'] = cfg.enum_index(data[0], cfg.HAIR_MODES)
-        elif addr == cfg.POLL_RATE:
+        elif addr in self._addr_to_traj:
+            self._config[self._addr_to_traj[addr] + '_traj'] = cfg.enum_index(data[0], cfg.TRAJ)
+        elif addr in self._addr_to_hair:
+            self._config[self._addr_to_hair[addr] + '_hair'] = cfg.enum_index(data[0], cfg.HAIR_MODES)
+        elif addr == self._prof.POLL_RATE:
             self._config['poll'] = data[0]
-        elif addr in _ADDR_TO_REMAP:
+        elif addr in self._addr_to_remap:
             rec = self._config.setdefault('remap', {})
-            rec[_ADDR_TO_REMAP[addr]] = cfg.remap_target_name(
+            rec[self._addr_to_remap[addr]] = cfg.remap_target_name(
                 data[0], data[1] if len(data) > 1 else 0)
 
     @Slot()
     def applyConfig(self):
-        bank = cfg.profile_bank(state['profile'])
+        bank = self._prof.profile_bank(state['profile'])
         if bank is None:
             return
         changes = [(a, r['data']) for a, r in self._pending.items()]
@@ -717,7 +750,7 @@ class GamesirBridge(QObject):
         """Rewrite the active profile to its factory out-of-box state (config +
         cleared remaps + default lighting), captured from the official app. Drops
         any staged edits and re-reads so every page reflects the reset."""
-        bank = cfg.profile_bank(state['profile'])
+        bank = self._prof.profile_bank(state['profile'])
         if bank is None:
             return
         self._pending = {}
